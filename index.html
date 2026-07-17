@@ -1624,10 +1624,6 @@ function buildContent() {
   ds.style.marginTop = '28px';
   ds.innerHTML = '<div class="org-divider-label">四国地方整備局</div><div class="org-divider-line"></div>';
   content.appendChild(ds);
-  const note = document.createElement('div');
-  note.className = 'shikoku-note';
-  note.textContent = '※ 四国地方整備局はR6〜R8年度の機械担当者一覧より作成。氏名は姓のみ掲載。';
-  content.appendChild(note);
   SHIKOKU_ORDER.forEach((name,i) => {
     content.appendChild(buildSection(name, getPeopleForSection('shikoku',name), 'shikoku-'+i, 'shikoku'));
   });
