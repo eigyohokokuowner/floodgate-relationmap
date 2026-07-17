@@ -1764,7 +1764,12 @@ function buildSection(officeName, people, sectionId, orgClass) {
   // 2) 他セクションのaddedMembersで最新officeがこのセクションの人を追加
   const filteredLocalMembers = localMembers.filter(p => {
     const latest = _getLatestOffice(p, orgClass);
-    return !latest || latest === officeName;
+    if (!latest) return true;
+    if (latest === officeName) return true;
+    // 地域名が省略された「本局」は、既にこのセクションに直接登録されている以上、
+    // このセクション（本局〇〇）に属するものとして扱う
+    if (latest === '本局' && officeName.startsWith('本局')) return true;
+    return false;
   });
 
   // 他セクションのaddedMembersからこのセクションに来た人を収集
@@ -5123,9 +5128,36 @@ REL_PERSONS_DEDUP.forEach(p => { relPersonMap[p.id] = p; });
 // ════════════════════════════════════════
 //  AUTO CO-LOCATION RELATIONS
 // ════════════════════════════════════════
+// 地域名なしの「本局」を、所属組織から地域名付きに補完するためのマップ
+const ORG_HONKYOKU_LABEL = { chugoku:'中国', shikoku:'四国', kanto:'関東', chubu:'中部', hokkaido:'北海道', hokuriku:'北陸', tohoku:'東北', kyushu:'九州' };
+// 年度コード（H7〜H30, R1〜R8）を連番インデックスに変換／逆変換
+function _yearCodeToIdx(code) {
+  let m = /^H(\d+)$/.exec(code);
+  if (m) return parseInt(m[1], 10) - 7; // H7→0 ... H30→23
+  m = /^R(\d+)$/.exec(code);
+  if (m) return 24 + (parseInt(m[1], 10) - 1); // R1→24 ...
+  return null;
+}
+function _idxToYearCode(idx) {
+  if (idx == null || idx < 0) return null;
+  if (idx <= 23) return 'H' + (idx + 7);
+  return 'R' + (idx - 24 + 1);
+}
+// 開始年〜終了年（endYear）を年度ごとに展開する（endYearが無い/不正な場合は開始年のみ）
+function _expandYearRange(startCode, endCode) {
+  if (!endCode || endCode === '現在' || endCode === startCode) return [startCode];
+  const si = _yearCodeToIdx(startCode), ei = _yearCodeToIdx(endCode);
+  if (si == null || ei == null || ei <= si) return [startCode];
+  const out = [];
+  for (let i = si; i <= ei; i++) {
+    const c = _idxToYearCode(i);
+    if (c) out.push(c);
+  }
+  return out.length ? out : [startCode];
+}
 function buildCoRelations() {
   const slots = {};  // displayName → { org, s: Set of "year|office" }
-  const _exclude = ['会社関係', '', '本局'];
+  const _exclude = ['会社関係', ''];
   REL_PERSONS_DEDUP.forEach(p => {
     const displayName = p.displayName || p.name;
     const s = new Set();
@@ -5133,7 +5165,13 @@ function buildCoRelations() {
     // 同一事務所・同一年度に在籍した人同士をリレーション対象とする
     p.history.forEach(h => {
       if (h.year && h.year !== '未特定' && h.year !== '辞任' && h.office && !_exclude.includes(h.office)) {
-        s.add(h.year + '|' + h.office);
+        // 地域名なしの「本局」は所属組織から地域名を補って地域単位で判定する
+        let office = h.office;
+        if (office === '本局' && ORG_HONKYOKU_LABEL[p.org]) {
+          office = '本局（' + ORG_HONKYOKU_LABEL[p.org] + '）';
+        }
+        const years = _expandYearRange(h.year, h.endYear);
+        years.forEach(y => s.add(y + '|' + office));
       }
     });
     slots[displayName] = { org: p.org, s };
