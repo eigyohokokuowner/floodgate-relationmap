@@ -495,7 +495,7 @@
     /* 過去工事リスト */
     #koujiPersonInfo { display: none !important; }
     #koujiDbCount { display: none !important; }
-    #koujiDropZone, #koujiBackBtn, #koujiScanBtn { display: none !important; }
+    #koujiDropZone, #koujiScoreDropZone, #koujiScoreAwardStatus, #koujiBackBtn, #koujiScanBtn { display: none !important; }
     #koujiTable thead { display: none; }
     #koujiTable, #koujiTable tbody, #koujiTable tr, #koujiTable td { display: block; width: 100%; }
     #koujiTable tr {
@@ -1215,6 +1215,17 @@
         📂 工事マスタCSVを追加（ドロップ or クリック）
       </div>
       <input type="file" id="koujiFileInput" accept=".csv" style="display:none" onchange="koujiHandleFile(this.files[0])">
+      <span id="koujiScoreAwardStatus" style="font-size:10px;color:var(--muted);white-space:nowrap;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:#f8fafc;">🔗 未連携</span>
+      <div id="koujiScoreDropZone"
+        style="border:2px dashed #cbd5e1;border-radius:8px;padding:5px 14px;font-size:11px;color:#64748b;cursor:pointer;white-space:nowrap;transition:background .15s;"
+        ondragover="event.preventDefault();this.style.background='#f8fafc';"
+        ondragleave="this.style.background='';"
+        ondrop="koujiHandleScoreAwardDrop(event);this.style.background='';"
+        onclick="document.getElementById('koujiScoreFileInput').click()"
+        title="スプレッドシート連携を使わない場合の手動インポート用（工番・点数・表彰のCSV）">
+        📂 CSVで手動追加
+      </div>
+      <input type="file" id="koujiScoreFileInput" accept=".csv" style="display:none" onchange="koujiHandleScoreAwardFile(this.files[0])">
       <button id="koujiBackBtn" onclick="switchTab('list')" style="display:none;font-size:11px;padding:4px 12px;border:1px solid var(--border);border-radius:5px;background:#f1f5f9;cursor:pointer;">← 職員録に戻る</button>
     </div>
   </div>
@@ -3723,6 +3734,46 @@ function koujiSyncFromFirebase() {
     window._koujiRegFbData = data || {};
     if (window._koujiCurrentPerson) goToKoujiDisplay(window._koujiCurrentPerson);
   });
+  // 工事点数・工事表彰の紐づけ情報
+  // 'sheetSync'：Google Apps Script経由でスプレッドシートから直接書き込まれる“現在の全件”（削除も反映）
+  // それ以外の 'batch_...'：手動CSV追加分（追加のみ、蓄積される）
+  window._koujiScoreAwardSheetSyncKeys = window._koujiScoreAwardSheetSyncKeys || new Set();
+  window.fbListen('kouji_score_award', data => {
+    if (!data) return;
+    let changed = false;
+
+    // 手動CSV分（sheetSync以外）はこれまで通り追加のみ反映
+    Object.keys(data).forEach(key => {
+      if (key === 'sheetSync') return;
+      const batch = data[key];
+      if (!Array.isArray(batch)) return;
+      batch.forEach(r => {
+        if (!r.no) return;
+        window._koujiScoreAwardMap.set(koujiNormalizeNo(r.no), { score: r.score, award: r.award });
+        changed = true;
+      });
+    });
+
+    // sheetSync分は「スプレッドシートの現在の全件」なので、削除された行はこちらでも消す
+    const sheetSync = Array.isArray(data.sheetSync) ? data.sheetSync : [];
+    const newKeys = new Set();
+    sheetSync.forEach(r => {
+      if (!r.no) return;
+      const key = koujiNormalizeNo(r.no);
+      newKeys.add(key);
+      window._koujiScoreAwardMap.set(key, { score: r.score, award: r.award });
+      changed = true;
+    });
+    window._koujiScoreAwardSheetSyncKeys.forEach(key => {
+      if (!newKeys.has(key)) {
+        window._koujiScoreAwardMap.delete(key);
+        changed = true;
+      }
+    });
+    window._koujiScoreAwardSheetSyncKeys = newKeys;
+
+    if (changed && window._koujiCurrentPerson) goToKoujiDisplay(window._koujiCurrentPerson);
+  });
 }
 
 // CSVテキストをパースして工事マスタ用オブジェクト配列に変換
@@ -3824,8 +3875,99 @@ function koujiHandleFile(file) {
 }
 
 // ════════════════════════════════════════
-//  個人ごとの「登録済み工事」管理（Firebase共有 + localStorageキャッシュ）
+//  工事点数・工事表彰の紐づけ（別スプレッドシートからのCSV連携）
 // ════════════════════════════════════════
+
+// CSVテキストをパースして {工事番号, 点数, 表彰} の配列に変換
+// 対応ヘッダー：工番/工事番号, 点数/工事点数/評定点, 表彰/工事表彰/表彰有無
+function parseKoujiScoreAwardCsvText(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const header = lines[0].replace(/^\uFEFF/,'').split(',').map(h => h.trim());
+  const colMap = {};
+  header.forEach((h, i) => {
+    if (h.includes('工番') || h.includes('工事番号')) colMap.no = i;
+    else if (h.includes('点数') || h.includes('評定点')) colMap.score = i;
+    else if (h.includes('表彰')) colMap.award = i;
+  });
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (const ch of lines[i]) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
+    const no = colMap.no !== undefined ? (cols[colMap.no] || '').trim() : '';
+    if (!no) continue;
+    rows.push({
+      no,
+      score: colMap.score !== undefined ? (cols[colMap.score] || '').trim() : '',
+      award: colMap.award !== undefined ? (cols[colMap.award] || '').trim() : '',
+    });
+  }
+  return rows;
+}
+
+// CSVドロップ処理（点数・表彰の紐づけ用）
+function koujiHandleScoreAwardDrop(e) {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file) koujiHandleScoreAwardFile(file);
+}
+
+function koujiHandleScoreAwardFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const text = ev.target.result;
+    const rows = parseKoujiScoreAwardCsvText(text);
+    if (rows.length === 0) {
+      alert('CSVを読み込みましたが、有効なデータが見つかりませんでした。\nヘッダーに「工番」（または「工事番号」）・「点数」・「表彰」を含めてください。');
+      return;
+    }
+    rows.forEach(r => {
+      window._koujiScoreAwardMap.set(koujiNormalizeNo(r.no), { score: r.score, award: r.award });
+    });
+    if (window.fbSet) {
+      const batchKey = 'batch_' + Date.now();
+      window.fbSet('kouji_score_award/' + batchKey, rows);
+      alert(`CSVを読み込みました。\n${rows.length}件の点数・表彰情報を紐づけました → Firebaseに同期しました`);
+    } else {
+      alert(`CSVを読み込みました。\n${rows.length}件の点数・表彰情報を紐づけました（Firebase未接続のためローカルのみ）`);
+    }
+    if (window._koujiCurrentPerson) goToKoujiDisplay(window._koujiCurrentPerson);
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+// ── スプレッドシートとの自動連携（Google Apps Script → Firebase 直接書き込み）──
+// Apps Script側が 'kouji_score_award/sheetSync' にデータを、'kouji_score_award_meta/lastSync' に
+// 最終更新時刻を書き込む。このアプリはFirebaseのリアルタイム更新を監視しているだけなので、
+// スプレッドシートを編集して保存すれば、即座（数秒程度）にこの画面へ反映される。
+// ※ 'kouji_score_award' 自体の受信・マージ処理は koujiSyncFromFirebase() 内で既に行っている。
+
+// 最終更新時刻の表示のみを担当（同期そのものはFirebaseのリアルタイムリスナーが自動で行う）
+function koujiInitScoreAwardStatusListener() {
+  if (!window.fbListen) return;
+  window.fbListen('kouji_score_award_meta/lastSync', iso => {
+    const el = document.getElementById('koujiScoreAwardStatus');
+    if (!el) return;
+    if (!iso) {
+      el.textContent = '🔗 未連携';
+      el.title = 'スプレッドシート側からのデータをまだ受信していません';
+      return;
+    }
+    let label = iso;
+    try { label = new Date(iso).toLocaleString('ja-JP'); } catch(e) {}
+    el.textContent = '✅ スプレッドシート連携中（最終更新 ' + label + '）';
+    el.title = 'Google Apps Script経由でFirebaseに直接書き込まれています';
+  });
+}
+
+
 
 // 職員カードからUID/所属を取得し、経歴保存等と同じ規則でキーを生成
 function koujiGetPersonKey(personName) {
@@ -4086,6 +4228,7 @@ function goToKouji(personName, e) {
 
 // Firebase起動時に工事データを同期
 koujiSyncFromFirebase();
+koujiInitScoreAwardStatusListener();
 
 
 
@@ -4158,6 +4301,10 @@ function applyPermissions() {
   const fileInput = document.getElementById('koujiFileInput');
   if (dropZone) dropZone.style.display = admin ? '' : 'none';
   if (fileInput) fileInput.style.display = admin ? '' : 'none';
+  const scoreDropZone = document.getElementById('koujiScoreDropZone');
+  const scoreFileInput = document.getElementById('koujiScoreFileInput');
+  if (scoreDropZone) scoreDropZone.style.display = admin ? '' : 'none';
+  if (scoreFileInput) scoreFileInput.style.display = admin ? '' : 'none';
   // ユーザー管理ボタン：管理者のみ表示
   const umBtn = document.getElementById('userMgmtBtn');
   if (umBtn) umBtn.style.display = admin ? '' : 'none';
