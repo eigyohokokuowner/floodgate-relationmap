@@ -3665,7 +3665,12 @@ function koujiNormalizeNo(s) {
 }
 
 // 個人に登録できる役割
-const ROLES = ['監督員', '検査官', '工事担当者', '積算担当者'];
+const ROLES = ['担当', '監督', '検査', '積算'];
+// 旧ラベル（工事担当者・監督員・検査官・積算担当者）で保存済みのデータとの後方互換用
+const ROLE_LEGACY_MAP = { '工事担当者': '担当', '監督員': '監督', '検査官': '検査', '積算担当者': '積算' };
+function koujiNormalizeRole(r) {
+  return ROLE_LEGACY_MAP[r] || r;
+}
 
 // ════════════════════════════════════════
 //  工事マスタDB（埋め込み + Firebase共有CSV追加分）
@@ -3892,16 +3897,71 @@ function koujiRegister() {
   goToKoujiDisplay(personName);
 }
 
-// 役割チェックボックスの切り替え
-function koujiToggleRole(idx, role, checked) {
+// 役割セル：通常表示（バッジ + 編集ボタン）。誤クリックで即変更されないよう、
+// チェックボックスは「編集」を押した時だけ表示し、「確定」を押すまで保存しない。
+function koujiRoleBadges(roles) {
+  if (!roles || roles.length === 0) return '<span style="color:var(--muted);font-size:11px;">未設定</span>';
+  return roles.map(r => `<span style="display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:10px;padding:1px 8px;font-size:11px;margin:0 3px 3px 0;">${r}</span>`).join('');
+}
+
+function koujiRenderRoleCellView(idx, roles) {
+  return `<div id="koujiRoleCell-${idx}">
+    <div style="margin-bottom:4px;">${koujiRoleBadges(roles)}</div>
+    <button onclick="koujiStartEditRole(${idx})" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;color:#475569;cursor:pointer;">✎ 編集</button>
+  </div>`;
+}
+
+function koujiRenderRoleCellEdit(idx, roles) {
+  const checks = ROLES.map(r => `
+      <label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;white-space:nowrap;font-size:11px;cursor:pointer;">
+        <input type="checkbox" data-role-checkbox data-role="${r}" ${roles.includes(r) ? 'checked' : ''}>${r}
+      </label>`).join('');
+  return `<div id="koujiRoleCell-${idx}">
+    <div style="margin-bottom:6px;">${checks}</div>
+    <button onclick="koujiConfirmEditRole(${idx})" style="font-size:10px;padding:3px 10px;border:none;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-weight:600;margin-right:4px;">✓ 確定</button>
+    <button onclick="koujiCancelEditRole(${idx})" style="font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:#fff;color:#64748b;cursor:pointer;">キャンセル</button>
+  </div>`;
+}
+
+// 編集モードに入る（チェックボックスを表示するだけで、まだ保存はしない）
+function koujiStartEditRole(idx) {
   const personName = window._koujiCurrentPerson;
   if (!personName) return;
   const list = koujiRegGet(personName);
+  const reg = list[idx];
+  if (!reg) return;
+  const roles = (reg.roles || []).map(koujiNormalizeRole);
+  const cellWrap = document.getElementById('koujiRoleCell-' + idx);
+  if (!cellWrap) return;
+  cellWrap.outerHTML = koujiRenderRoleCellEdit(idx, roles);
+}
+
+// 編集をキャンセルし、保存済みの内容に戻す
+function koujiCancelEditRole(idx) {
+  const personName = window._koujiCurrentPerson;
+  if (!personName) return;
+  const list = koujiRegGet(personName);
+  const reg = list[idx];
+  if (!reg) return;
+  const roles = (reg.roles || []).map(koujiNormalizeRole);
+  const cellWrap = document.getElementById('koujiRoleCell-' + idx);
+  if (!cellWrap) return;
+  cellWrap.outerHTML = koujiRenderRoleCellView(idx, roles);
+}
+
+// 「確定」ボタンが押された時だけ、選択内容を保存する
+function koujiConfirmEditRole(idx) {
+  const personName = window._koujiCurrentPerson;
+  if (!personName) return;
+  const cellWrap = document.getElementById('koujiRoleCell-' + idx);
+  if (!cellWrap) return;
+  const checked = Array.from(cellWrap.querySelectorAll('input[data-role-checkbox]:checked')).map(el => el.dataset.role);
+  const roles = ROLES.filter(r => checked.includes(r));
+  const list = koujiRegGet(personName);
   if (!list[idx]) return;
-  const roleSet = new Set(list[idx].roles || []);
-  if (checked) roleSet.add(role); else roleSet.delete(role);
-  list[idx].roles = ROLES.filter(r => roleSet.has(r));
+  list[idx].roles = roles;
   koujiRegSave(personName, list);
+  cellWrap.outerHTML = koujiRenderRoleCellView(idx, roles);
 }
 
 // 登録済み工事の削除
@@ -3981,11 +4041,8 @@ function goToKoujiDisplay(personName) {
   const fmtAmount = n => { const v = parseInt(n, 10); return v ? v.toLocaleString('ja-JP') + '円' : '—'; };
 
   tbody.innerHTML = rows.map(({ reg, idx, master }, i) => {
-    const roles = reg.roles || [];
-    const roleCells = ROLES.map(r => `
-        <label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;white-space:nowrap;font-size:11px;cursor:pointer;">
-          <input type="checkbox" ${roles.includes(r) ? 'checked' : ''} onchange="koujiToggleRole(${idx},'${r}',this.checked)">${r}
-        </label>`).join('');
+    const roles = (reg.roles || []).map(koujiNormalizeRole);
+    const roleCells = koujiRenderRoleCellView(idx, roles);
     const rowBg = i % 2 === 0 ? 'background:#fff' : 'background:#f8fafc';
     const delBtn = `<button onclick="koujiDeleteRegistration(${idx})" title="削除" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:15px;padding:2px 6px;">✕</button>`;
 
