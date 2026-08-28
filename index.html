@@ -3675,6 +3675,11 @@ function koujiNormalizeNo(s) {
   return (s || '').toString().trim().toUpperCase().replace(/\s+/g, '');
 }
 
+// 社内サイト（工事番号カルテ）へのリンクURLを生成
+function koujiKobanUrl(no) {
+  return 'http://orion.hokoku-kogyo.co.jp/kikan/KOBAN_view.php?a_COMPCD=H1&a_CTRL=' + encodeURIComponent(no || '');
+}
+
 // 個人に登録できる役割
 const ROLES = ['担当者', '監督員', '検査員', '積算担当者'];
 // 過去に保存された別ラベル（工事担当者・監督員・検査官・積算担当者、担当・監督・検査・積算）との後方互換用
@@ -4226,7 +4231,7 @@ function goToKoujiDisplay(personName) {
       <td data-label="役割" style="padding:7px 10px;vertical-align:top;">${roleCells}</td>
       <td data-label="工期" style="padding:7px 10px;white-space:nowrap;font-size:11px;color:var(--muted);">${fmtDate(master.start)}〜${fmtDate(master.end)}</td>
       <td data-label="工事番号" style="padding:7px 10px;white-space:nowrap;font-size:11px;font-family:monospace;">${master.no}</td>
-      <td data-label="工事名" style="padding:7px 10px;font-size:12px;font-weight:600;">${master.name || '—'}</td>
+      <td data-label="工事名" style="padding:7px 10px;font-size:12px;font-weight:600;">${master.name ? `<a href="${koujiKobanUrl(master.no)}" target="_blank" rel="noopener" style="color:#1d4ed8;text-decoration:underline;">${master.name}</a>` : '—'}</td>
       <td data-label="工事点数" style="padding:7px 6px;text-align:center;font-size:12px;font-weight:600;">${sa.score || '—'}</td>
       <td data-label="工事表彰" style="padding:7px 6px;text-align:center;font-size:12px;">${sa.award || '—'}</td>
       <td data-label="契約金額" style="padding:7px 10px;text-align:right;white-space:nowrap;font-size:11px;">${fmtAmount(master.amt)}</td>
