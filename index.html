@@ -1934,7 +1934,7 @@ function renderProjectList(officeName) {
   }
 
   subtitleEl.textContent = '顧客コード：' + code;
-  const list = (window._projectListByClient.get(code) || []).slice();
+  const list = (window._projectListByClient.get(code) || []).filter(p => /^H/i.test(p.no || ''));
   // 着工予定日が新しい順に表示
   list.sort((a, b) => (parseInt(b.start, 10) || 0) - (parseInt(a.start, 10) || 0));
 
