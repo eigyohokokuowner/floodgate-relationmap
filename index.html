@@ -212,7 +212,7 @@
   .shikoku-note { font-size: 11px; color: var(--muted); background: var(--shikoku-light); border: 1px solid #99f6e4; border-radius: 4px; padding: 5px 10px; margin-bottom: 14px; }
 
   .office-section { margin-bottom: 20px; scroll-margin-top: 90px; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
-  .office-header { display: flex; align-items: center; gap: 10px; padding: 9px 15px; color: #fff; cursor: pointer; user-select: none; }
+  .office-header { display: flex; align-items: center; gap: 10px; padding: 9px 15px; color: #fff; cursor: pointer; user-select: none; flex-wrap: wrap; row-gap: 6px; }
   .chugoku-section .office-header { background: var(--accent); }
   .chugoku-section.is-main .office-header { background: var(--accent-dark); }
   .shikoku-section .office-header { background: var(--shikoku); }
@@ -223,6 +223,8 @@
   .office-count { font-size: 11px; background: rgba(255,255,255,.2); padding: 2px 7px; border-radius: 10px; }
   .office-code-badge { font-size: 10px; background: rgba(255,255,255,.15); padding: 2px 7px; border-radius: 10px; cursor: pointer; white-space: nowrap; transition: background .12s; }
   .office-code-badge:hover { background: rgba(255,255,255,.32); }
+  .office-link-btn { font-size: 10px; background: rgba(255,255,255,.15); padding: 3px 9px; border-radius: 10px; cursor: pointer; white-space: nowrap; border: none; color: #fff; font-family: inherit; font-weight: 600; transition: background .12s; }
+  .office-link-btn:hover { background: rgba(255,255,255,.32); }
   .gyomu-det-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px; }
   .gyomu-det-item.full { grid-column: 1 / -1; }
   .gyomu-det-lbl { font-size: 10px; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
@@ -2003,6 +2005,14 @@ function goToProjectList(officeName) {
   renderGyomuList(officeName); // 業務案件リストタブも同時に更新しておく（タブ切替時は再取得不要）
 }
 
+// 職員録タブの「📌 業務案件」ボタンから呼ばれる
+function goToGyomuList(officeName) {
+  window._currentOfficeForProjects = officeName;
+  switchTab('gyomu');
+  renderProjectList(officeName); // 工事案件リストタブも同時に更新しておく
+  renderGyomuList(officeName);
+}
+
 function renderProjectList(officeName) {
   projectListInit();
   officeCodeInit();
@@ -2053,7 +2063,7 @@ function renderProjectList(officeName) {
       <td data-label="受注予定期" style="padding:7px 10px;white-space:nowrap;font-size:12px;">${p.period || '—'}</td>
       <td data-label="工期" style="padding:7px 10px;white-space:nowrap;font-size:11px;color:var(--muted);">${fmtEraDate(p.start)}〜${fmtEraDate(p.end)}</td>
       <td data-label="案件番号" style="padding:7px 10px;white-space:nowrap;font-size:11px;font-family:monospace;">${p.no}</td>
-      <td data-label="案件名称" style="padding:7px 10px;font-size:12px;font-weight:600;">${p.name || '—'}</td>
+      <td data-label="案件名称" style="padding:7px 10px;font-size:12px;font-weight:600;">${p.name ? `<a href="${projectAnkenUrl(p.no)}" target="_blank" rel="noopener" style="color:#1d4ed8;text-decoration:underline;">${p.name}</a>` : '—'}</td>
       <td data-label="予定金額" style="padding:7px 10px;text-align:right;white-space:nowrap;font-size:11px;">${fmtYen(p.amt)}</td>
       <td data-label="受注ランク" style="padding:7px 6px;text-align:center;">${rankBadge}</td>
     </tr>`;
@@ -2361,7 +2371,7 @@ function buildSection(officeName, people, sectionId, orgClass) {
   const sorted = [...people].sort(_sortByYearThenRole);
   const hdr = document.createElement('div');
   hdr.className = 'office-header' + (isCompany ? ' company-hdr' : '');
-  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><span class="office-count">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
+  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><span class="office-count">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><span class="office-collapse-icon">▾</span>`;
   hdr.addEventListener('click', ()=>sec.classList.toggle('collapsed'));
   // Hide section if no people (non-main offices)
   if (!isMain && !isCompany && !['kanto','naibu','shisetsu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko'].includes(orgClass) && people.length === 0) sec.style.display = 'none';
@@ -4369,6 +4379,11 @@ function koujiNormalizeNo(s) {
 // 社内サイト（工事番号カルテ）へのリンクURLを生成
 function koujiKobanUrl(no) {
   return 'http://orion.hokoku-kogyo.co.jp/kikan/KOBAN_view.php?a_COMPCD=H1&a_CTRL=' + encodeURIComponent(no || '');
+}
+
+// 社内サイト（工事案件詳細）へのリンクURLを生成
+function projectAnkenUrl(no) {
+  return 'http://orion.hokoku-kogyo.co.jp/anken/comm/web/SPR0020_G.php?ACTION=INIT&MOTOGMN=SPI0010_G&ANKEN_NO=' + encodeURIComponent(no || '') + '&COMP=H1';
 }
 
 // 個人に登録できる役割
