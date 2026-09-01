@@ -217,7 +217,7 @@
   .chugoku-section.is-main .office-header { background: var(--accent-dark); }
   .shikoku-section .office-header { background: var(--shikoku); }
   .shikoku-section.is-main .office-header { background: var(--shikoku-dark); }
-  .office-name { font-size: 13px; font-weight: 700; flex: 1; }
+  .office-name { font-size: 13px; font-weight: 700; flex: 0 1 auto; min-width: 0; }
   .office-name:hover { text-decoration: underline; }
   .is-main .office-name { font-size: 14px; }
   .office-count { font-size: 11px; background: rgba(255,255,255,.2); padding: 2px 7px; border-radius: 10px; }
@@ -2371,7 +2371,7 @@ function buildSection(officeName, people, sectionId, orgClass) {
   const sorted = [...people].sort(_sortByYearThenRole);
   const hdr = document.createElement('div');
   hdr.className = 'office-header' + (isCompany ? ' company-hdr' : '');
-  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><span class="office-count">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><span class="office-collapse-icon">▾</span>`;
+  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><span class="office-count" style="margin-left:auto;">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
   hdr.addEventListener('click', ()=>sec.classList.toggle('collapsed'));
   // Hide section if no people (non-main offices)
   if (!isMain && !isCompany && !['kanto','naibu','shisetsu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko'].includes(orgClass) && people.length === 0) sec.style.display = 'none';
@@ -5394,7 +5394,7 @@ function buildRetiredSection() {
 
   const hdr = document.createElement('div');
   hdr.className = 'office-header';
-  hdr.innerHTML = `<span class="office-name">退職者</span><span class="office-count">${retiredPersons.length}名</span><span class="office-collapse-icon">▾</span>`;
+  hdr.innerHTML = `<span class="office-name">退職者</span><span class="office-count" style="margin-left:auto;">${retiredPersons.length}名</span><span class="office-collapse-icon">▾</span>`;
   hdr.addEventListener('click', () => sec.classList.toggle('collapsed'));
   sec.appendChild(hdr);
 
