@@ -501,11 +501,13 @@
     .hamburger-btn { display: block; }
 
     /* タブバー：モバイルでも表示（5個に増えたため横スクロールで全て選べるようにする） */
-    .tab-bar { display: flex !important; padding: 0; position: relative !important; top: auto !important; z-index: 10; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    /* ※ !important を付けているのは、この後に続く通常（PC用）の .tab-bar/.tab-btn 定義の方が
+       ソース順で後に来るため、!important なしだと font-size 等がそちらに上書きされてしまうため */
+    .tab-bar { display: flex !important; padding: 0 !important; position: relative !important; top: auto !important; z-index: 10; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .tab-bar::-webkit-scrollbar { display: none; }
     .tab-btn {
-      font-size: 11px; padding: 8px 12px; letter-spacing: 0;
-      flex: 0 0 auto; white-space: nowrap;
+      font-size: 11px !important; padding: 8px 12px !important; letter-spacing: 0 !important;
+      flex: 0 0 auto !important; white-space: nowrap;
       overflow: visible; text-align: center;
     }
 
