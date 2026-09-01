@@ -223,6 +223,13 @@
   .office-count { font-size: 11px; background: rgba(255,255,255,.2); padding: 2px 7px; border-radius: 10px; }
   .office-code-badge { font-size: 10px; background: rgba(255,255,255,.15); padding: 2px 7px; border-radius: 10px; cursor: pointer; white-space: nowrap; transition: background .12s; }
   .office-code-badge:hover { background: rgba(255,255,255,.32); }
+  .gyomu-det-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px; }
+  .gyomu-det-item.full { grid-column: 1 / -1; }
+  .gyomu-det-lbl { font-size: 10px; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+  .gyomu-det-val { font-size: 12px; color: var(--text); }
+  @media (max-width: 680px) {
+    .gyomu-det-grid { grid-template-columns: 1fr; }
+  }
   .office-collapse-icon { font-size: 12px; opacity: .8; transition: transform .2s; }
   .office-section.collapsed .office-collapse-icon { transform: rotate(-90deg); }
   .staff-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(250px,1fr)); gap: 9px; padding: 11px; background: #fff; border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; }
@@ -684,6 +691,25 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
+  // ── 業務案件集約システム（別プロジェクト）への読み取り専用接続 ──
+  // 「業務案件リスト」機能用。書き込みは一切行わず、判定＝追跡案件のデータを読み取るだけ。
+  const gyomuFirebaseConfig = {
+    apiKey: "AIzaSyBT3wlVlcWJr-DKakxeo2UByxHyZ4mjGYI",
+    authDomain: "project-insight-cb1cb.firebaseapp.com",
+    databaseURL: "https://project-insight-cb1cb-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "project-insight-cb1cb",
+    storageBucket: "project-insight-cb1cb.firebasestorage.app",
+    messagingSenderId: "388981106364",
+    appId: "1:388981106364:web:d27e79553b5265b42592b9"
+  };
+  let gyomuDb = null;
+  try {
+    const gyomuApp = firebase.initializeApp(gyomuFirebaseConfig, 'gyomu');
+    gyomuDb = firebase.database(gyomuApp);
+  } catch (e) {
+    console.error('業務案件集約システムへの接続に失敗しました:', e);
+  }
+
   // ── Firebase read/write helpers ──
   function fbKey(str) {
     return str.replace(/[.#$\[\]/]/g, '_');
@@ -1024,6 +1050,7 @@
   <button class="tab-btn" onclick="switchTab('map')">リレーション</button>
   <button class="tab-btn" onclick="switchTab('kouji')">過去工事リスト</button>
   <button class="tab-btn" onclick="switchTab('projects')">工事案件リスト</button>
+  <button class="tab-btn" onclick="switchTab('gyomu')">業務案件リスト</button>
 </div>
 
 <!-- ドロワーオーバーレイ -->
@@ -1339,6 +1366,37 @@
       </thead>
       <tbody id="projectListTableBody">
         <tr><td colspan="6" style="padding:40px;text-align:center;color:var(--muted);">職員録タブで事務所名をクリックすると表示されます</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 業務案件リストタブ -->
+<div class="tab-view" id="tabGyomu" style="display:none;flex-direction:column;overflow:hidden;">
+  <div style="padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
+    <div style="font-size:14px;font-weight:700;color:var(--text)" id="gyomuListTitle">📌 業務案件リスト</div>
+    <div style="font-size:12px;color:var(--muted)" id="gyomuListSubtitle"></div>
+  </div>
+  <div style="padding:6px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span id="gyomuSyncStatus" style="display:inline-flex;align-items:center;font-size:10px;color:var(--muted);white-space:nowrap;border:1px solid var(--border);border-radius:6px;padding:3px 10px;background:#fff;">🔗 未接続</span>
+  </div>
+  <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;font-size:12px;color:var(--muted)" id="gyomuListSummary"></div>
+  <div style="flex:1;overflow-y:auto;">
+    <table id="gyomuListTable" style="width:100%;border-collapse:collapse;font-size:12px;font-family:inherit;">
+      <thead style="position:sticky;top:0;background:#1e3a5f;color:#fff;z-index:1;">
+        <tr>
+          <th style="width:24px;"></th>
+          <th style="padding:8px 6px;text-align:center;white-space:nowrap;font-weight:600;">判定</th>
+          <th style="padding:8px 6px;text-align:center;white-space:nowrap;font-weight:600;">状態</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;">発注機関</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;">案件名</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">入札方式</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">落札者名</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">更新日</th>
+        </tr>
+      </thead>
+      <tbody id="gyomuListTableBody">
+        <tr><td colspan="8" style="padding:40px;text-align:center;color:var(--muted);">職員録タブで事務所名をクリックすると表示されます</td></tr>
       </tbody>
     </table>
   </div>
@@ -1909,8 +1967,10 @@ function fmtYen(n) {
 
 // 職員録タブの事務所名クリックから呼ばれる
 function goToProjectList(officeName) {
+  window._currentOfficeForProjects = officeName;
   switchTab('projects');
   renderProjectList(officeName);
+  renderGyomuList(officeName); // 業務案件リストタブも同時に更新しておく（タブ切替時は再取得不要）
 }
 
 function renderProjectList(officeName) {
@@ -2073,6 +2133,135 @@ function projectListSyncFromFirebase() {
       }
     }
   });
+}
+
+// ════════════════════════════════════════
+//  業務案件リスト（業務案件集約システムと直結・リアルタイム連携）
+// ════════════════════════════════════════
+// 「業務案件集約システム」（別のFirebaseプロジェクト）の gyomu/recs を直接購読し、
+// 判定＝追跡案件のものだけをこちらの画面にも自動反映する。書き込みは一切行わない。
+window._gyomuRecs = [];          // 判定＝追跡案件の案件のみを保持
+window._gyomuLastUpdate = null;
+window._currentOfficeForProjects = null;
+
+// 「発注機関」文字列（例：「国土交通省中国地方整備局／太田川河川事務所」）から
+// 末尾の事務所名部分だけを取り出す（業務案件集約システム側のorgCat()と同じ区切り方に合わせている）
+function gyomuOfficeNameFromOrg(org) {
+  if (!org) return '';
+  const parts = org.split(/[／/]/);
+  return parts[parts.length - 1].trim();
+}
+
+function gyomuUpdateSyncStatus(ok) {
+  const el = document.getElementById('gyomuSyncStatus');
+  if (!el) return;
+  if (ok === false) {
+    el.textContent = '⚠️ 業務案件集約システムに接続できません';
+    return;
+  }
+  if (!window._gyomuLastUpdate) {
+    el.textContent = '🔗 業務案件集約システムに接続中…';
+    return;
+  }
+  let label = window._gyomuLastUpdate;
+  try { label = new Date(window._gyomuLastUpdate).toLocaleString('ja-JP'); } catch(e) {}
+  el.textContent = `✅ 業務案件集約システムと連携中（最終更新 ${label}）`;
+}
+
+// 業務案件集約システムのDBをリアルタイムで購読する（onで常時リッスン＝向こうが更新すれば即座に反映）
+function gyomuSyncFromFirebase() {
+  if (!gyomuDb) { gyomuUpdateSyncStatus(false); return; }
+
+  gyomuDb.ref('gyomu/recs').on('value', snap => {
+    const raw = snap.val();
+    if (!raw) return;
+    let recs = [];
+    try {
+      // gyomu/recs は JSON.stringify された文字列として保存されている
+      recs = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch(e) {
+      console.error('業務案件データの解析に失敗しました:', e);
+      return;
+    }
+    window._gyomuRecs = (recs || []).filter(r => r && r._judgment === 'track');
+    gyomuUpdateSyncStatus(true);
+    if (window._currentOfficeForProjects) renderGyomuList(window._currentOfficeForProjects);
+  }, err => {
+    console.error('業務案件集約システムからの読み取りに失敗しました:', err);
+    gyomuUpdateSyncStatus(false);
+  });
+
+  gyomuDb.ref('gyomu/lastUpdate').on('value', snap => {
+    const v = snap.val();
+    if (v) { window._gyomuLastUpdate = v; gyomuUpdateSyncStatus(true); }
+  });
+}
+
+function esc(s) {
+  return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderGyomuList(officeName) {
+  document.getElementById('gyomuListTitle').textContent = '📌 ' + officeName + ' の業務案件リスト';
+  const subtitleEl = document.getElementById('gyomuListSubtitle');
+  const summaryEl = document.getElementById('gyomuListSummary');
+  const tbody = document.getElementById('gyomuListTableBody');
+
+  const list = window._gyomuRecs.filter(r => gyomuOfficeNameFromOrg(r.org) === officeName);
+  subtitleEl.textContent = '';
+  summaryEl.textContent = list.length > 0 ? `${list.length}件の追跡案件があります` : '該当する追跡案件は見つかりませんでした';
+
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--muted);">該当する追跡案件はありません</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map((r, i) => {
+    const rowBg = i % 2 === 0 ? 'background:#fff' : 'background:#f8fafc';
+    const statusBadge = r._status === 'koukoku'
+      ? '<span style="display:inline-block;background:#6b3fa0;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">公告中</span>'
+      : '<span style="display:inline-block;background:#0f6e56;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">開札済</span>';
+    const judgmentBadge = '<span style="display:inline-block;background:#f59e0b;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">🎯 追跡案件</span>';
+
+    const detailRows = [];
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">発注機関</div><div class="gyomu-det-val">${esc(r.org)}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">入札方式</div><div class="gyomu-det-val">${esc(r.method)}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">公告日</div><div class="gyomu-det-val">${esc(r._koukokuDate || '')}</div></div>`);
+    if (r._status === 'kaisatsu') {
+      detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">開札日</div><div class="gyomu-det-val">${esc(r._kaisatsuDate || '')}</div></div>`);
+      detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">落札者名</div><div class="gyomu-det-val">${esc(r.rakusatsuSha || '（未登録）')}</div></div>`);
+    }
+    detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">案件名</div><div class="gyomu-det-val">${esc(r.name)}</div></div>`);
+    if (r._businessContent) {
+      detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">業務内容</div><div style="white-space:pre-wrap;line-height:1.8;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:4px;">${esc(r._businessContent)}</div></div>`);
+    }
+
+    return `<tr style="border-bottom:1px solid #e2e8f0;${rowBg};cursor:pointer;" onclick="toggleGyomuDetail(${i})">
+      <td style="padding:7px 6px;text-align:center;color:var(--muted);" id="gyomuArrow-${i}">▶</td>
+      <td data-label="判定" style="padding:7px 6px;text-align:center;">${judgmentBadge}</td>
+      <td data-label="状態" style="padding:7px 6px;text-align:center;">${statusBadge}</td>
+      <td data-label="発注機関" style="padding:7px 10px;font-size:11px;">${esc(r.orgCategory)}<div style="font-size:10px;color:var(--muted);">${esc(r.org)}</div></td>
+      <td data-label="案件名" style="padding:7px 10px;font-size:12px;font-weight:600;">${esc(r.name)}</td>
+      <td data-label="入札方式" style="padding:7px 10px;font-size:11px;white-space:nowrap;">${esc(r.method)}</td>
+      <td data-label="落札者名" style="padding:7px 10px;font-size:11px;">${esc(r.rakusatsuSha) || '—'}</td>
+      <td data-label="更新日" style="padding:7px 10px;font-size:11px;white-space:nowrap;">${esc(r.date)}</td>
+    </tr>
+    <tr id="gyomuDetail-${i}" style="display:none;${rowBg}">
+      <td colspan="8" style="padding:10px 16px 16px 34px;">
+        <div class="gyomu-det-grid">${detailRows.join('')}</div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// 案件行クリックで詳細（業務内容など）を開閉する
+function toggleGyomuDetail(idx) {
+  const detailRow = document.getElementById('gyomuDetail-' + idx);
+  const arrow = document.getElementById('gyomuArrow-' + idx);
+  if (!detailRow) return;
+  const isOpen = detailRow.style.display !== 'none';
+  detailRow.style.display = isOpen ? 'none' : 'table-row';
+  if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
 }
 
 
@@ -4871,6 +5060,7 @@ officeCodeSyncFromFirebase();
 projectListInit();
 projectUpdateDbCount();
 projectListSyncFromFirebase();
+gyomuSyncFromFirebase();
 
 
 
@@ -5839,6 +6029,7 @@ function switchTab(tab) {
     if (tab === 'map' && b.textContent.includes('リレーション')) b.classList.add('active');
     if (tab === 'kouji' && b.textContent.includes('過去工事')) b.classList.add('active');
     if (tab === 'projects' && b.textContent.includes('工事案件')) b.classList.add('active');
+    if (tab === 'gyomu' && b.textContent.includes('業務案件')) b.classList.add('active');
   });
   document.getElementById('listSearchWrap').style.display = tab === 'list' ? '' : 'none';
   if (tab === 'map') {
