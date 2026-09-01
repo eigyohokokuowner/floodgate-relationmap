@@ -2146,10 +2146,15 @@ window._currentOfficeForProjects = null;
 
 // 「発注機関」文字列（例：「国土交通省中国地方整備局／太田川河川事務所」）から
 // 末尾の事務所名部分だけを取り出す（業務案件集約システム側のorgCat()と同じ区切り方に合わせている）
+// ・末尾が「（本部）」の場合：組織全体を指す表記のため、事務所への紐づけ対象外とする
+// ・末尾が括弧なしの「本部」の場合：「本部」を取り除いた事務所名で紐づける（例：札幌開発建設部本部 → 札幌開発建設部）
 function gyomuOfficeNameFromOrg(org) {
   if (!org) return '';
   const parts = org.split(/[／/]/);
-  return parts[parts.length - 1].trim();
+  let name = parts[parts.length - 1].trim();
+  if (name.endsWith('（本部）')) return '';
+  if (name.endsWith('本部')) name = name.slice(0, -2).trim();
+  return name;
 }
 
 function gyomuUpdateSyncStatus(ok) {
