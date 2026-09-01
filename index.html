@@ -581,6 +581,22 @@
     #gyomuListTable td:empty, #gyomuListTable td[id^="gyomuArrow-"] { display: none; }
     #gyomuListTable td[data-label]::before { content: attr(data-label) ': '; font-weight: 700; color: var(--accent); font-size: 10px; }
 
+    /* 発注工事実績リスト */
+    #ankenListTable thead { display: none; }
+    #ankenListTable, #ankenListTable tbody, #ankenListTable tr, #ankenListTable td { display: block; width: 100%; }
+    #ankenListTable tr[onclick] {
+      border: 1px solid var(--border); border-radius: 8px 8px 0 0;
+      margin: 8px 8px 0; padding: 10px 12px; background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); width: calc(100% - 16px);
+    }
+    #ankenListTable tr[id^="ankenDetail-"] {
+      border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+      margin: 0 8px 8px; padding: 0; width: calc(100% - 16px);
+    }
+    #ankenListTable td { padding: 3px 0; font-size: 12px; border: none; white-space: normal; }
+    #ankenListTable td:empty, #ankenListTable td[id^="ankenArrow-"] { display: none; }
+    #ankenListTable td[data-label]::before { content: attr(data-label) ': '; font-weight: 700; color: var(--accent); font-size: 10px; }
+
     /* モーダル */
     .modal-box { width: 96vw !important; max-height: 85vh; margin: 8vh auto 0; }
     .modal-box .modal-body { padding: 12px; }
@@ -1085,6 +1101,7 @@
   <button class="tab-btn" onclick="switchTab('kouji')">過去工事リスト</button>
   <button class="tab-btn" onclick="switchTab('projects')">工事案件リスト</button>
   <button class="tab-btn" onclick="switchTab('gyomu')">業務案件リスト</button>
+  <button class="tab-btn" onclick="switchTab('anken')">発注工事実績リスト</button>
 </div>
 
 <!-- ドロワーオーバーレイ -->
@@ -1431,6 +1448,38 @@
       </thead>
       <tbody id="gyomuListTableBody">
         <tr><td colspan="8" style="padding:40px;text-align:center;color:var(--muted);">職員録タブで事務所名をクリックすると表示されます</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 発注工事実績リストタブ -->
+<div class="tab-view" id="tabAnken" style="display:none;flex-direction:column;overflow:hidden;">
+  <div style="padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
+    <div style="font-size:14px;font-weight:700;color:var(--text)" id="ankenListTitle">🏆 発注工事実績リスト</div>
+    <div style="font-size:12px;color:var(--muted)" id="ankenListSubtitle"></div>
+  </div>
+  <div style="padding:6px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span id="ankenSyncStatus" style="display:inline-flex;align-items:center;font-size:10px;color:var(--muted);white-space:nowrap;border:1px solid var(--border);border-radius:6px;padding:3px 10px;background:#fff;">🔗 未接続</span>
+  </div>
+  <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;font-size:12px;color:var(--muted)" id="ankenListSummary"></div>
+  <div style="flex:1;overflow-y:auto;">
+    <table id="ankenListTable" style="width:100%;border-collapse:collapse;font-size:12px;font-family:inherit;">
+      <thead style="position:sticky;top:0;background:#1e3a5f;color:#fff;z-index:1;">
+        <tr>
+          <th style="width:24px;"></th>
+          <th style="padding:8px 6px;text-align:center;white-space:nowrap;font-weight:600;">判定</th>
+          <th style="padding:8px 6px;text-align:center;white-space:nowrap;font-weight:600;">状態</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;">発注機関</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;">工事名</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">発注規模</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">入札方式</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">落札者</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600;">開札日</th>
+        </tr>
+      </thead>
+      <tbody id="ankenListTableBody">
+        <tr><td colspan="9" style="padding:40px;text-align:center;color:var(--muted);">職員録タブで事務所名をクリックすると表示されます</td></tr>
       </tbody>
     </table>
   </div>
@@ -2005,6 +2054,7 @@ function goToProjectList(officeName) {
   switchTab('projects');
   renderProjectList(officeName);
   renderGyomuList(officeName); // 業務案件リストタブも同時に更新しておく（タブ切替時は再取得不要）
+  renderAnkenList(officeName); // 発注工事実績リストタブも同時に更新しておく
 }
 
 // 職員録タブの「📌 業務案件」ボタンから呼ばれる
@@ -2013,6 +2063,16 @@ function goToGyomuList(officeName) {
   switchTab('gyomu');
   renderProjectList(officeName); // 工事案件リストタブも同時に更新しておく
   renderGyomuList(officeName);
+  renderAnkenList(officeName); // 発注工事実績リストタブも同時に更新しておく
+}
+
+// 職員録タブの「🏆 発注実績」ボタンから呼ばれる
+function goToAnkenList(officeName) {
+  window._currentOfficeForProjects = officeName;
+  switchTab('anken');
+  renderProjectList(officeName); // 工事案件リストタブも同時に更新しておく
+  renderGyomuList(officeName);   // 業務案件リストタブも同時に更新しておく
+  renderAnkenList(officeName);
 }
 
 function renderProjectList(officeName) {
@@ -2321,6 +2381,166 @@ function toggleGyomuDetail(idx) {
   if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
 }
 
+// ════════════════════════════════════════
+//  発注工事実績リスト
+//  「工事案件集約システム」（業務案件集約システムと同じFirebaseプロジェクト＝
+//  project-insight-cb1cb。ただしパスは anken/recs）を直接購読し、
+//  判定＝入札予定(bid) または 回避(pass) かつ 状態＝開札済(kaisatsu) のものだけを
+//  こちらの画面にも自動反映する。書き込みは一切行わない。
+// ════════════════════════════════════════
+window._ankenRecs = [];        // 条件に合致する工事のみを保持
+window._ankenLastUpdate = null;
+window._ankenImgCache = {};    // id -> 入札調書画像配列（取得済みキャッシュ）
+
+function ankenUpdateSyncStatus(ok) {
+  const el = document.getElementById('ankenSyncStatus');
+  if (!el) return;
+  if (ok === false) {
+    el.textContent = '⚠️ 工事案件集約システムに接続できません';
+    return;
+  }
+  if (!window._ankenLastUpdate) {
+    el.textContent = '🔗 工事案件集約システムに接続中…';
+    return;
+  }
+  let label = window._ankenLastUpdate;
+  try { label = new Date(window._ankenLastUpdate).toLocaleString('ja-JP'); } catch(e) {}
+  el.textContent = `✅ 工事案件集約システムと連携中（最終更新 ${label}）`;
+}
+
+// 工事案件集約システムのDBをリアルタイムで購読する（onで常時リッスン＝向こうが更新すれば即座に反映）
+function ankenSyncFromFirebase() {
+  if (!gyomuDb) { ankenUpdateSyncStatus(false); return; }
+
+  gyomuDb.ref('anken/recs').on('value', snap => {
+    const raw = snap.val();
+    if (!raw) return;
+    let recs = [];
+    try {
+      // anken/recs は JSON.stringify された文字列として保存されている
+      recs = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch(e) {
+      console.error('発注工事実績データの解析に失敗しました:', e);
+      return;
+    }
+    window._ankenRecs = (recs || []).filter(r =>
+      r && r._status === 'kaisatsu' && (r._judgment === 'bid' || r._judgment === 'pass')
+    );
+    ankenUpdateSyncStatus(true);
+    if (window._currentOfficeForProjects) renderAnkenList(window._currentOfficeForProjects);
+  }, err => {
+    console.error('工事案件集約システムからの読み取りに失敗しました:', err);
+    ankenUpdateSyncStatus(false);
+  });
+
+  gyomuDb.ref('anken/lastUpdate').on('value', snap => {
+    const v = snap.val();
+    if (v) { window._ankenLastUpdate = v; ankenUpdateSyncStatus(true); }
+  });
+}
+
+function renderAnkenList(officeName) {
+  document.getElementById('ankenListTitle').textContent = '🏆 ' + officeName + ' の発注工事実績リスト';
+  const summaryEl = document.getElementById('ankenListSummary');
+  const tbody = document.getElementById('ankenListTableBody');
+
+  // 「発注機関」文字列の事務所名部分で紐づけ（業務案件リストと同じロジックを再利用）
+  const list = window._ankenRecs.filter(r => gyomuOfficeNameFromOrg(r.org) === officeName);
+  summaryEl.textContent = list.length > 0 ? `${list.length}件の発注工事実績があります` : '該当する発注工事実績は見つかりませんでした';
+
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--muted);">該当する発注工事実績はありません</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map((r, i) => {
+    const rowBg = i % 2 === 0 ? 'background:#fff' : 'background:#f8fafc';
+    const judgmentBadge = r._judgment === 'bid'
+      ? '<span style="display:inline-block;background:#ca8a04;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">📌 入札予定</span>'
+      : '<span style="display:inline-block;background:#64748b;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">🚫 回避</span>';
+    const statusBadge = '<span style="display:inline-block;background:#0f6e56;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">🔨 開札済</span>';
+    const dept = r.org && r.org.includes('／') ? r.org.split('／')[1].trim() : '';
+    const orgTop = r.org && r.org.includes('／') ? r.org.split('／')[0].trim() : (r.org || '');
+    const dispName = r._koukokuName || r.name;
+
+    const detailRows = [];
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">発注機関</div><div class="gyomu-det-val">${esc(orgTop)}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">担当部・事務所</div><div class="gyomu-det-val">${esc(dept || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">工事場所</div><div class="gyomu-det-val">${esc(r.place || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">発注規模</div><div class="gyomu-det-val">${esc(r.scale || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">工期</div><div class="gyomu-det-val">${esc(r.duration || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">入札契約方式</div><div class="gyomu-det-val">${esc(r.method || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">工事種別</div><div class="gyomu-det-val">${esc(r.type || '—')}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">開札日</div><div class="gyomu-det-val">${esc(r._kaisatsuDate || '—')}</div></div>`);
+    if (r._keiyakuDate) detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">契約日</div><div class="gyomu-det-val">${esc(r._keiyakuDate)}</div></div>`);
+    detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">工事名</div><div class="gyomu-det-val">${esc(dispName)}</div></div>`);
+    if (r.summary) detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">概要</div><div style="white-space:pre-wrap;line-height:1.8;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:4px;">${esc(r.summary)}</div></div>`);
+    if (r.rakusatsuSha) detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">🔨 落札者</div><div class="gyomu-det-val" style="font-weight:700;">${esc(r.rakusatsuSha)}</div></div>`);
+    if (r.rakusatsuPrice) detailRows.push(`<div class="gyomu-det-item"><div class="gyomu-det-lbl">落札価格</div><div class="gyomu-det-val" style="font-weight:700;">${esc(r.rakusatsuPrice)}円（税抜）</div></div>`);
+    if (r._bidders && r._bidders.length) {
+      detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">入札参加者</div><div class="gyomu-det-val">${r._bidders.map(b => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;background:#f0f4ff;border:1px solid #c8d8f0;border-radius:12px;font-size:11px;">${esc(b.name)}</span>`).join('')}</div></div>`);
+    }
+    // 入札調書（画像）は別パスに保存されているため、詳細を開いたタイミングで遅延取得する
+    detailRows.push(`<div class="gyomu-det-item full"><div class="gyomu-det-lbl">📎 入札調書</div><div class="gyomu-det-val" id="ankenChosaku-${esc(r.id)}">読み込み中…</div></div>`);
+
+    return `<tr style="border-bottom:1px solid #e2e8f0;${rowBg};cursor:pointer;" onclick="toggleAnkenDetail(${i},'${r.id}')">
+      <td style="padding:7px 6px;text-align:center;color:var(--muted);" id="ankenArrow-${i}">▶</td>
+      <td data-label="判定" style="padding:7px 6px;text-align:center;">${judgmentBadge}</td>
+      <td data-label="状態" style="padding:7px 6px;text-align:center;">${statusBadge}</td>
+      <td data-label="発注機関" style="padding:7px 10px;font-size:11px;">${esc(r.orgCategory)}<div style="font-size:10px;color:var(--muted);">${esc(dept)}</div></td>
+      <td data-label="工事名" style="padding:7px 10px;font-size:12px;font-weight:600;">${esc(dispName)}</td>
+      <td data-label="発注規模" style="padding:7px 10px;font-size:11px;white-space:nowrap;">${esc(r.scale) || '—'}</td>
+      <td data-label="入札方式" style="padding:7px 10px;font-size:11px;white-space:nowrap;">${esc(r.method)}</td>
+      <td data-label="落札者" style="padding:7px 10px;font-size:11px;">${esc(r.rakusatsuSha) || '—'}</td>
+      <td data-label="開札日" style="padding:7px 10px;font-size:11px;white-space:nowrap;">${esc(r._kaisatsuDate || r.date)}</td>
+    </tr>
+    <tr id="ankenDetail-${i}" style="display:none;${rowBg}">
+      <td colspan="9" style="padding:10px 16px 16px 34px;">
+        <div class="gyomu-det-grid">${detailRows.join('')}</div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// 案件行クリックで詳細（工事場所・概要・入札調書など）を開閉する
+function toggleAnkenDetail(idx, id) {
+  const detailRow = document.getElementById('ankenDetail-' + idx);
+  const arrow = document.getElementById('ankenArrow-' + idx);
+  if (!detailRow) return;
+  const isOpen = detailRow.style.display !== 'none';
+  detailRow.style.display = isOpen ? 'none' : 'table-row';
+  if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+  if (!isOpen) ankenLoadChosaku(id);
+}
+
+// 入札調書画像は容量対策のため anken/imgs/{id} に別保存されている。
+// 詳細を開いたタイミングで初回のみ取得し、以降はキャッシュを使う。
+function ankenLoadChosaku(id) {
+  const el = document.getElementById('ankenChosaku-' + id);
+  if (!el) return;
+  if (window._ankenImgCache[id]) {
+    ankenRenderChosaku(id, window._ankenImgCache[id]);
+    return;
+  }
+  if (!gyomuDb) { el.textContent = '（接続できません）'; return; }
+  gyomuDb.ref('anken/imgs/' + id).once('value').then(snap => {
+    let imgs = [];
+    try {
+      const raw = snap.val();
+      imgs = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+    } catch(e) {}
+    window._ankenImgCache[id] = imgs;
+    ankenRenderChosaku(id, imgs);
+  }).catch(() => { el.textContent = '（読み込みに失敗しました）'; });
+}
+
+function ankenRenderChosaku(id, imgs) {
+  const el = document.getElementById('ankenChosaku-' + id);
+  if (!el) return;
+  if (!imgs || !imgs.length) { el.innerHTML = '<span style="color:var(--muted);font-style:italic;">未添付</span>'; return; }
+  el.innerHTML = imgs.map(src => `<img src="${src}" style="max-width:180px;max-height:140px;border:1px solid var(--border);border-radius:4px;object-fit:contain;margin:4px 6px 4px 0;cursor:pointer;" onclick="window.open(this.src,'_blank')">`).join('');
+}
+
 
 function buildSection(officeName, people, sectionId, orgClass) {
   const isMain = officeName==='本局（中国）' || officeName==='本局（四国）';
@@ -2373,7 +2593,7 @@ function buildSection(officeName, people, sectionId, orgClass) {
   const sorted = [...people].sort(_sortByYearThenRole);
   const hdr = document.createElement('div');
   hdr.className = 'office-header' + (isCompany ? ' company-hdr' : '');
-  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><span class="office-count" style="margin-left:auto;">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
+  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToAnkenList('${officeName}')" title="この事務所の発注工事実績リストを見る">🏆 発注実績</button><span class="office-count" style="margin-left:auto;">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
   hdr.addEventListener('click', ()=>sec.classList.toggle('collapsed'));
   // Hide section if no people (non-main offices)
   if (!isMain && !isCompany && !['kanto','naibu','shisetsu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko'].includes(orgClass) && people.length === 0) sec.style.display = 'none';
@@ -5123,6 +5343,7 @@ projectListInit();
 projectUpdateDbCount();
 projectListSyncFromFirebase();
 gyomuSyncFromFirebase();
+ankenSyncFromFirebase();
 
 
 
@@ -6092,6 +6313,7 @@ function switchTab(tab) {
     if (tab === 'kouji' && b.textContent.includes('過去工事')) b.classList.add('active');
     if (tab === 'projects' && b.textContent.includes('工事案件')) b.classList.add('active');
     if (tab === 'gyomu' && b.textContent.includes('業務案件')) b.classList.add('active');
+    if (tab === 'anken' && b.textContent.includes('発注工事実績')) b.classList.add('active');
   });
   document.getElementById('listSearchWrap').style.display = tab === 'list' ? '' : 'none';
   if (tab === 'map') {
