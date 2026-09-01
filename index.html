@@ -498,11 +498,12 @@
     .search-wrap input:focus { width: 140px; }
     .hamburger-btn { display: block; }
 
-    /* タブバー：モバイルでも表示 */
-    .tab-bar { display: flex !important; padding: 0; position: relative !important; top: auto !important; z-index: 10; flex-wrap: nowrap; }
+    /* タブバー：モバイルでも表示（5個に増えたため横スクロールで全て選べるようにする） */
+    .tab-bar { display: flex !important; padding: 0; position: relative !important; top: auto !important; z-index: 10; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tab-bar::-webkit-scrollbar { display: none; }
     .tab-btn {
-      font-size: 9px; padding: 7px 2px; letter-spacing: 0;
-      flex: 1 1 0; min-width: 0; white-space: nowrap;
+      font-size: 11px; padding: 8px 12px; letter-spacing: 0;
+      flex: 0 0 auto; white-space: nowrap;
       overflow: visible; text-align: center;
     }
 
@@ -546,6 +547,35 @@
     #koujiTable td { padding: 3px 0; font-size: 12px; border: none; white-space: normal; }
     #koujiTable td:empty { display: none; }
     #koujiTable td[data-label]::before { content: attr(data-label) ': '; font-weight: 700; color: var(--accent); font-size: 10px; }
+
+    /* 工事案件リスト */
+    #projectDbCount { display: none !important; }
+    #projectListTable thead { display: none; }
+    #projectListTable, #projectListTable tbody, #projectListTable tr, #projectListTable td { display: block; width: 100%; }
+    #projectListTable tr {
+      border: 1px solid var(--border); border-radius: 8px;
+      margin: 8px; padding: 10px 12px; background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); width: calc(100% - 16px);
+    }
+    #projectListTable td { padding: 3px 0; font-size: 12px; border: none; white-space: normal; }
+    #projectListTable td:empty { display: none; }
+    #projectListTable td[data-label]::before { content: attr(data-label) ': '; font-weight: 700; color: var(--accent); font-size: 10px; }
+
+    /* 業務案件リスト */
+    #gyomuListTable thead { display: none; }
+    #gyomuListTable, #gyomuListTable tbody, #gyomuListTable tr, #gyomuListTable td { display: block; width: 100%; }
+    #gyomuListTable tr[onclick] {
+      border: 1px solid var(--border); border-radius: 8px 8px 0 0;
+      margin: 8px 8px 0; padding: 10px 12px; background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); width: calc(100% - 16px);
+    }
+    #gyomuListTable tr[id^="gyomuDetail-"] {
+      border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+      margin: 0 8px 8px; padding: 0; width: calc(100% - 16px);
+    }
+    #gyomuListTable td { padding: 3px 0; font-size: 12px; border: none; white-space: normal; }
+    #gyomuListTable td:empty, #gyomuListTable td[id^="gyomuArrow-"] { display: none; }
+    #gyomuListTable td[data-label]::before { content: attr(data-label) ': '; font-weight: 700; color: var(--accent); font-size: 10px; }
 
     /* モーダル */
     .modal-box { width: 96vw !important; max-height: 85vh; margin: 8vh auto 0; }
