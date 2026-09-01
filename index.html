@@ -223,6 +223,9 @@
   .office-count { font-size: 11px; background: rgba(255,255,255,.2); padding: 2px 7px; border-radius: 10px; }
   .office-code-badge { font-size: 10px; background: rgba(255,255,255,.15); padding: 2px 7px; border-radius: 10px; cursor: pointer; white-space: nowrap; transition: background .12s; }
   .office-code-badge:hover { background: rgba(255,255,255,.32); }
+  @media (max-width: 680px) {
+    .office-code-badge { display: none; }
+  }
   .office-link-btn { font-size: 10px; background: rgba(255,255,255,.15); padding: 3px 9px; border-radius: 10px; cursor: pointer; white-space: nowrap; border: none; color: #fff; font-family: inherit; font-weight: 600; transition: background .12s; }
   .office-link-btn:hover { background: rgba(255,255,255,.32); }
   .gyomu-det-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px; }
