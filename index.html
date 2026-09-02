@@ -1724,11 +1724,13 @@ function _getLatestOffice(person, orgKey) {
     // 手動追加メンバーは_histCacheを参照しない（他人の経歴が混入するため）
     if (person.note !== '手動追加') {
       const uid = person.uid || '';
-      const cache = window._histCache || {};
+      // メモリキャッシュだけでなくlocalStorageもフォールバックで確認する
+      // （UIDを持たない人物の経歴はFirebaseの再同期時にメモリキャッシュへ復元されないため、
+      // 　ここでhistGet()同様にlocalStorageを見ないと、保存した異動が再読み込み後に消えてしまう）
       let saved = null;
-      if (uid) saved = cache['hist_uid_' + uid];
-      if (!saved) saved = cache['hist_' + orgKey + '|' + person.name];
-      if (!saved) saved = cache['hist_' + person.name];
+      if (uid) saved = histGet('hist_uid_' + uid);
+      if (!saved) saved = histGet('hist_' + orgKey + '|' + person.name);
+      if (!saved) saved = histGet('hist_' + person.name);
       if (saved) hist = JSON.parse(saved);
     }
   } catch(e) {}
@@ -1926,6 +1928,24 @@ const ALL_OFFICE_NAMES = ["七ヶ宿ダム管理所","三国川ダム管理所",
 
 window._officeCodeMaster = null;      // 事務所名 → {code, seishiki}（CSV取り込みで自動紐づけできたもの）
 window._officeCodeOverrides = {};     // 事務所名 → コード文字列（個別編集で上書き・追記したもの。こちらが優先）
+
+// 経歴編集の「事務所名」欄用サジェストリスト（datalist）。全事務所名をまとめて一度だけ生成する。
+// 過去の組織改編で名前が変わった事務所などを自由入力できるよう、選択を強制しない（あくまで候補表示のみ）。
+(function initOfficeNameDatalist() {
+  const dl = document.createElement('datalist');
+  dl.id = 'officeNameOptions';
+  dl.innerHTML = ALL_OFFICE_NAMES.map(n => `<option value="${n.replace(/"/g,'&quot;')}"></option>`).join('');
+  document.body.appendChild(dl);
+})();
+
+// 経歴編集の「事務所名」欄に入力された値が、現在の事務所名一覧に存在するかチェックし、
+// 見つからなければ入力欄の右側に⚠️を出す（保存はブロックしない＝過去の廃止済み事務所名なども入力可能なままにする）
+function checkOfficeNameKnown(inputEl) {
+  const warnEl = inputEl.nextElementSibling;
+  if (!warnEl || !warnEl.classList || !warnEl.classList.contains('office-name-warn')) return;
+  const val = (inputEl.value || '').trim();
+  warnEl.style.display = (val && !ALL_OFFICE_NAMES.includes(val)) ? '' : 'none';
+}
 
 function officeCodeInit() {
   if (window._officeCodeMaster) return;
@@ -3169,7 +3189,10 @@ function addEditorRow(cardId,data,e,insertAfterEl) {
     <span class="drag-handle" title="ドラッグして並び替え" style="cursor:grab;color:#cbd5e1;font-size:12px;user-select:none;text-align:center;">⠿</span>
     <select class="sel-start">${YEAR_OPTIONS}</select>
     <select class="sel-end">${YEAR_OPTIONS_END}</select>
-    <input type="text" placeholder="事務所名" value="${(data?.office||'')}">
+    <div style="position:relative;">
+      <input type="text" class="office-input" placeholder="事務所名" list="officeNameOptions" autocomplete="off" value="${(data?.office||'')}" oninput="checkOfficeNameKnown(this)" style="padding-right:20px;box-sizing:border-box;">
+      <span class="office-name-warn" title="この事務所名は現在の事務所名一覧に見つかりません（表記ゆれ、または廃止済みの古い事務所名の可能性があります）" style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:12px;cursor:help;">⚠️</span>
+    </div>
     <input type="text" placeholder="所属課" value="${(data?.dept||'')}">
     <input type="text" placeholder="役職" value="${(data?.role||'')}">
     <div style="display:flex;gap:2px;align-items:center;">
@@ -3178,6 +3201,7 @@ function addEditorRow(cardId,data,e,insertAfterEl) {
     </div>`;
   row.querySelector('.sel-start').value = data?.year ?? '未特定';
   row.querySelector('.sel-end').value = data?.endYear || '未特定';
+  checkOfficeNameKnown(row.querySelector('.office-input')); // 既存データ読み込み時にも表記ゆれ等をその場で表示
   _setupRowDrag(row);
   if (insertAfterEl && insertAfterEl.parentNode === rows) {
     insertAfterEl.after(row);
@@ -3324,14 +3348,19 @@ function saveHistory(cardId,e) {
   // Move card to new office section if latest office changed
   if (history.length > 0) {
     const yrOrd3={};
-    for(let h=7;h<=30;h++) yrOrd3['H'+h]=h-7;
-    yrOrd3['R1']=24;
-    for(let r=1;r<=8;r++) yrOrd3['R'+r]=23+r;
-    yrOrd3['その他']=99;
+    for(let h=7;h<=30;h++) yrOrd3['H'+h]=h;
+    for(let r=1;r<=10;r++) yrOrd3['R'+r]=100+r;
+    // _getLatestOffice()と同じ実効終了年の考え方で判定する（着任年だけで比べると、
+    // 「離任＝現在」の最新エントリより着任年が新しい過去エントリが誤って選ばれることがあるため）
+    function _effEnd3(h) {
+      if (h.endYear && h.endYear !== '現在' && h.endYear !== '') return yrOrd3[h.endYear] || yrOrd3[h.year] || 0;
+      if (h.endYear === '現在') return (yrOrd3[h.year] || 0) + 0.5;
+      return yrOrd3[h.year] || 0;
+    }
     // 未特定・辞任は最新エントリ判定から除外
     const validEntries = history.filter(h => h.year && h.year !== '未特定' && h.year !== '辞任');
     if (validEntries.length === 0) { /* skip */ } else {
-    const latestEntry = [...validEntries].sort((a,b)=>(yrOrd3[b.year]||0)-(yrOrd3[a.year]||0))[0];
+    const latestEntry = [...validEntries].sort((a,b)=>_effEnd3(b)-_effEnd3(a))[0];
     const newOffice = latestEntry.office;
     const currentGrid = card.closest('.staff-grid');
     const currentSection = card.closest('.office-section');
@@ -3777,7 +3806,7 @@ function addImportRowToContainer(rows, data, insertAfterEl) {
     <span class="drag-handle" title="ドラッグして並び替え" style="cursor:grab;color:#cbd5e1;font-size:12px;user-select:none;text-align:center;">⠿</span>
     <select class="imp-sel-start" style="font-size:11px;padding:2px;background:transparent;">${YEAR_OPTIONS}</select>
     <select class="imp-sel-end" style="font-size:11px;padding:2px;background:transparent;">${YEAR_OPTIONS_END}</select>
-    <input type="text" class="imp-office" placeholder="事務所名" value="${(data?.office||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:transparent;">
+    <input type="text" class="imp-office" placeholder="事務所名" list="officeNameOptions" autocomplete="off" value="${(data?.office||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:transparent;">
     <input type="text" class="imp-dept" placeholder="所属課" value="${(data?.dept||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:transparent;">
     <input type="text" class="imp-role" placeholder="役職" value="${(data?.role||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:transparent;">
     <div style="display:flex;gap:2px;align-items:center;">
@@ -6732,10 +6761,14 @@ function getRelations(name) {
 // ════════════════════════════════════════
 function relocateCardsFromStorage() {
   const yrOrd={};
-  for(let h=7;h<=30;h++) yrOrd['H'+h]=h-7;
-  yrOrd['R1']=24;
-  for(let r=1;r<=8;r++) yrOrd['R'+r]=23+r;
-  yrOrd['その他']=99;
+  for(let h=7;h<=30;h++) yrOrd['H'+h]=h;
+  for(let r=1;r<=10;r++) yrOrd['R'+r]=100+r;
+  // _getLatestOffice()と同じ実効終了年の考え方で判定する
+  function _effEnd(h) {
+    if (h.endYear && h.endYear !== '現在' && h.endYear !== '') return yrOrd[h.endYear] || yrOrd[h.year] || 0;
+    if (h.endYear === '現在') return (yrOrd[h.year] || 0) + 0.5;
+    return yrOrd[h.year] || 0;
+  }
 
   document.querySelectorAll('.staff-card').forEach(card => {
     const rawName = card.dataset.name;
@@ -6750,8 +6783,10 @@ function relocateCardsFromStorage() {
     } catch(e) {}
     if (!savedHist || !savedHist.length) return;
 
-    // Find latest office from saved history
-    const latest = [...savedHist].sort((a,b)=>(yrOrd[b.year]||0)-(yrOrd[a.year]||0))[0];
+    // Find latest office from saved history（未特定・辞任は除外）
+    const validHist = savedHist.filter(h => h.year && h.year !== '未特定' && h.year !== '辞任');
+    if (!validHist.length) return;
+    const latest = [...validHist].sort((a,b)=>_effEnd(b)-_effEnd(a))[0];
     if (!latest?.office) return;
 
     const newOffice = latest.office;
