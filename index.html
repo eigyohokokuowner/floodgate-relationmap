@@ -1097,7 +1097,6 @@
         <button id="userMgmtBtn" onclick="openUserMgmt()" style="display:none;font-size:10px;font-family:inherit;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:3px;color:#fff;cursor:pointer" title="ユーザー管理">👤 ユーザー管理</button>
         <button onclick="openImportDetailModal()" style="font-size:10px;font-family:inherit;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:3px;color:#fff;cursor:pointer" id="importDetailBtn" title="人事異動データを貼り付けて経歴を一括更新">📋 詳細情報から更新</button>
         <button onclick="pushAllToFirebase()" id="syncAllBtn" style="display:none;font-size:10px;font-family:inherit;margin-left:10px;padding:2px 8px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:3px;color:#fff;cursor:pointer" title="ローカルの編集データをFirebaseに一括同期">☁️ 全データ同期</button>
-        <button onclick="debugOfficePlacement()" style="font-size:10px;font-family:inherit;margin-left:6px;padding:2px 8px;background:rgba(255,140,0,0.55);border:1px solid rgba(255,180,0,0.8);border-radius:3px;color:#fff;cursor:pointer" id="debugOfficeBtn" title="【調査用・一時的なボタン】事務所判定の内部状態を表示">🔍 事務所判定を確認（調査用）</button>
       </div>
     </div>
   </div>
@@ -1729,15 +1728,19 @@ const _OFFICE_TO_ORG = {};
 function _getLatestOffice(person, orgKey) {
   let hist = person.history || [];
   try {
-    // 手動追加メンバーは_histCacheを参照しない（他人の経歴が混入するため）
-    if (person.note !== '手動追加') {
-      const uid = person.uid || '';
+    const uid = person.uid || '';
+    // uidは一意なキーなので、手動追加メンバーであっても同姓同名の別人の経歴が混ざる心配がない。
+    // uidがあれば手動追加かどうかに関わらず最優先で使う。
+    if (uid) {
+      const saved = histGet('hist_uid_' + uid);
+      if (saved) hist = JSON.parse(saved);
+    } else if (person.note !== '手動追加') {
+      // uidを持たない人物のみ、名前ベースでの照合にフォールバックする
+      // （手動追加メンバーは名前だけでの照合だと他人の経歴が混入する恐れがあるため対象外のまま）
       // メモリキャッシュだけでなくlocalStorageもフォールバックで確認する
       // （UIDを持たない人物の経歴はFirebaseの再同期時にメモリキャッシュへ復元されないため、
       // 　ここでhistGet()同様にlocalStorageを見ないと、保存した異動が再読み込み後に消えてしまう）
-      let saved = null;
-      if (uid) saved = histGet('hist_uid_' + uid);
-      if (!saved) saved = histGet('hist_' + orgKey + '|' + person.name);
+      let saved = histGet('hist_' + orgKey + '|' + person.name);
       if (!saved) saved = histGet('hist_' + person.name);
       if (saved) hist = JSON.parse(saved);
     }
@@ -1753,61 +1756,6 @@ function _getLatestOffice(person, orgKey) {
   }
   const latest = [...hist].sort((a,b) => effEnd(b) - effEnd(a))[0];
   return latest ? latest.office : null;
-}
-
-// ════════════════════════════════════════
-// 【調査用・一時的な機能】事務所判定の内部状態をその場で確認するデバッグツール
-// 原因が特定でき次第、このボタンと関数は削除します。
-// ════════════════════════════════════════
-function debugOfficePlacement() {
-  const q = prompt('確認したい職員の氏名を入力してください（部分一致でOK。例：甲斐）');
-  if (!q) return;
-  const cards = Array.from(document.querySelectorAll('.staff-card')).filter(c => (c.dataset.name||'').includes(q));
-  if (cards.length === 0) { alert('該当する職員が見つかりませんでした: ' + q); return; }
-  const allOrgKeys = ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','tohoku','kyushu','suikiko','sonota','naibu','shisetsu','todofuken'];
-  const lines = cards.map(card => {
-    const name = card.dataset.name;
-    const uid = card.dataset.uid;
-    const org = card.dataset.org;
-    const currentSection = card.closest('.office-section');
-    const currentOfficeName = currentSection?.querySelector('.office-name')?.textContent?.trim() || '(不明)';
-
-    const uidKey = uid ? 'hist_uid_' + uid : null;
-    const orgNameKey = 'hist_' + org + '|' + name;
-
-    const has = (k) => {
-      if (!k) return '(該当キーなし)';
-      const inCache = !!(window._histCache && window._histCache[k] !== undefined);
-      let inLs = false;
-      try { inLs = localStorage.getItem(k) !== null; } catch(e) {}
-      return 'メモリキャッシュ:' + (inCache ? 'あり' : 'なし') + ' / localStorage:' + (inLs ? 'あり' : 'なし');
-    };
-
-    // DATA内の元データを探し、_getLatestOffice()を直接その場で実行してみる
-    let personObj = null, personOrgKey = null;
-    outer:
-    for (const ok of allOrgKeys) {
-      for (const off in (DATA[ok]||{})) {
-        for (const p of (DATA[ok][off]||[])) {
-          if (p.name === name) { personObj = p; personOrgKey = ok; break outer; }
-        }
-      }
-    }
-    const computed = personObj ? _getLatestOffice(personObj, personOrgKey) : '(DATA内に見つからず)';
-    const noteVal = personObj ? (personObj.note || '(なし)') : '(不明)';
-
-    return [
-      '■ ' + name,
-      '画面上の現在のセクション: ' + currentOfficeName,
-      '_getLatestOffice()の計算結果: ' + (computed || '(nullが返った)'),
-      'person.note: ' + noteVal,
-      'uid: ' + (uid || '(なし)'),
-      'card.dataset.org: ' + (org || '(空)'),
-      uidKey ? ('uidキー(' + uidKey + ') → ' + has(uidKey)) : 'uidキーなし',
-      'org|nameキー(' + orgNameKey + ') → ' + has(orgNameKey),
-    ].join('\n');
-  });
-  alert(lines.join('\n\n----------\n\n'));
 }
 
 // DATAを書き換えず、指定セクションに表示すべき人物を返す
