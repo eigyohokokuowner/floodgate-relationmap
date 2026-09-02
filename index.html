@@ -1915,6 +1915,7 @@ function buildContent() {
   content.appendChild(dc2);
   content.appendChild(buildSection('会社関係', DATA.chugoku['会社関係']||[], 'chugoku-20', 'chugoku'));
 
+  updateAllOfficeCaseCounts();
 }
 
 // ════════════════════════════════════════
@@ -1973,7 +1974,7 @@ function officeCodeSyncFromFirebase() {
         changed = true;
       }
     });
-    if (changed) officeCodeRefreshAllBadges();
+    if (changed) { officeCodeRefreshAllBadges(); updateAllOfficeCaseCounts(); }
   });
 }
 
@@ -1983,6 +1984,34 @@ function officeCodeRefreshAllBadges() {
     const officeName = el.dataset.officeName;
     if (officeName === undefined) return;
     el.textContent = officeCodeGet(officeName) ? '🏷️ ' + officeCodeGet(officeName) : '🏷️ コード未登録';
+  });
+}
+
+// 事務所ごとの「業務案件／工事案件／発注実績」の件数を取得（buildSectionのボタン表示・自動更新の両方から呼び出し）
+function officeCaseCount(type, officeName) {
+  if (type === 'gyomu') {
+    return (window._gyomuRecs || []).filter(r => gyomuOfficeNameFromOrg(r.org) === officeName).length;
+  }
+  if (type === 'anken') {
+    return (window._ankenRecs || []).filter(r => gyomuOfficeNameFromOrg(r.org) === officeName).length;
+  }
+  if (type === 'project') {
+    projectListInit();
+    const code = officeCodeGet(officeName);
+    if (!code || !window._projectListByClient) return 0;
+    return (window._projectListByClient.get(code) || []).filter(p => /^H/i.test(p.no || '')).length;
+  }
+  return 0;
+}
+
+// 画面上の全ての件数バッジ（📌業務案件／📋工事案件／🏆発注実績）を最新の値で再描画
+// データが後から届く（Firebaseリアルタイム同期・CSV追加・顧客コード変更）たびに呼び出す
+function updateAllOfficeCaseCounts() {
+  document.querySelectorAll('.office-case-count').forEach(el => {
+    const type = el.dataset.countType;
+    const officeName = el.dataset.officeName;
+    if (!type || officeName === undefined) return;
+    el.textContent = officeCaseCount(type, officeName) + '件';
   });
 }
 
@@ -2001,6 +2030,7 @@ function openOfficeCodeEdit(officeName) {
     if (input === null) return; // キャンセル
     officeCodeSave(officeName, input.trim());
     officeCodeRefreshAllBadges();
+    updateAllOfficeCaseCounts();
   });
 }
 
@@ -2203,6 +2233,7 @@ function projectHandleFile(file) {
     }
     newRows.forEach(p => projectListAdd(p));
     projectUpdateDbCount();
+    updateAllOfficeCaseCounts();
     if (window.fbSet) {
       const batchKey = 'batch_' + Date.now();
       window.fbSet('project_master_additions/' + batchKey, newRows);
@@ -2231,6 +2262,7 @@ function projectListSyncFromFirebase() {
     });
     if (added > 0) {
       projectUpdateDbCount();
+      updateAllOfficeCaseCounts();
       const titleEl = document.getElementById('projectListTitle');
       if (titleEl) {
         const m = titleEl.textContent.match(/^📋 (.+) の工事案件リスト$/);
@@ -2305,6 +2337,7 @@ function gyomuSyncFromFirebase() {
     }
     window._gyomuRecs = (recs || []).filter(r => r && r._judgment === 'track');
     gyomuUpdateSyncStatus(true);
+    updateAllOfficeCaseCounts();
     if (window._currentOfficeForProjects) renderGyomuList(window._currentOfficeForProjects);
   }, err => {
     console.error('業務案件集約システムからの読み取りに失敗しました:', err);
@@ -2430,6 +2463,7 @@ function ankenSyncFromFirebase() {
       r && r._status === 'kaisatsu' && (r._judgment === 'bid' || r._judgment === 'pass')
     );
     ankenUpdateSyncStatus(true);
+    updateAllOfficeCaseCounts();
     if (window._currentOfficeForProjects) renderAnkenList(window._currentOfficeForProjects);
   }, err => {
     console.error('工事案件集約システムからの読み取りに失敗しました:', err);
@@ -2596,7 +2630,7 @@ function buildSection(officeName, people, sectionId, orgClass) {
   const sorted = [...people].sort(_sortByYearThenRole);
   const hdr = document.createElement('div');
   hdr.className = 'office-header' + (isCompany ? ' company-hdr' : '');
-  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件</button><button class="office-link-btn" onclick="event.stopPropagation();goToAnkenList('${officeName}')" title="この事務所の発注工事実績リストを見る">🏆 発注実績</button><span class="office-count" style="margin-left:auto;">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
+  hdr.innerHTML = `<span class="office-name" onclick="event.stopPropagation();goToProjectList('${officeName}')" style="cursor:pointer;" title="クリックしてこの事務所の工事案件リストを表示">${officeName}</span><button class="office-link-btn" onclick="event.stopPropagation();goToGyomuList('${officeName}')" title="この事務所の業務案件リストを見る">📌 業務案件 <span class="office-case-count" data-count-type="gyomu" data-office-name="${officeName}">${officeCaseCount('gyomu', officeName)}件</span></button><button class="office-link-btn" onclick="event.stopPropagation();goToProjectList('${officeName}')" title="この事務所の工事案件リストを見る">📋 工事案件 <span class="office-case-count" data-count-type="project" data-office-name="${officeName}">${officeCaseCount('project', officeName)}件</span></button><button class="office-link-btn" onclick="event.stopPropagation();goToAnkenList('${officeName}')" title="この事務所の発注工事実績リストを見る">🏆 発注実績 <span class="office-case-count" data-count-type="anken" data-office-name="${officeName}">${officeCaseCount('anken', officeName)}件</span></button><span class="office-count" style="margin-left:auto;">${people.length>0?people.length+'名':'—'}</span>${officeCodeBadgeHTML(officeName)}<span class="office-collapse-icon">▾</span>`;
   hdr.addEventListener('click', ()=>sec.classList.toggle('collapsed'));
   // Hide section if no people (non-main offices)
   if (!isMain && !isCompany && !['kanto','naibu','shisetsu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko'].includes(orgClass) && people.length === 0) sec.style.display = 'none';
