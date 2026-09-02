@@ -939,15 +939,22 @@
     if (!window._histCache) window._histCache = {};
     Object.entries(data).forEach(([key, val]) => {
       try {
-        // UID形式キー（uid_で始まる）はFirebaseのデータでlocalStorageを上書きする
-        // ただし同一セッション内で自分が直前に保存したキーは上書きしない（競合防止）
+        // 同一セッション内で自分が直前に保存したキーは上書きしない（競合防止）
+        const saved = window._mySavedKeys || new Set();
+        if (saved.has(key)) return;
+        // UID形式キー（uid_で始まる）はFirebaseのデータでメモリキャッシュ・localStorageを上書きする
         if (key.startsWith('uid_')) {
-          const saved = window._mySavedKeys || new Set();
-          if (!saved.has(key)) {
-            // メモリキャッシュに保存（file://環境でlocalStorageが使えない場合の対策）
-            window._histCache['hist_' + key] = JSON.stringify(val);
-            try { localStorage.setItem('hist_' + key, JSON.stringify(val)); } catch(e) {}
-          }
+          window._histCache['hist_' + key] = JSON.stringify(val);
+          try { localStorage.setItem('hist_' + key, JSON.stringify(val)); } catch(e) {}
+          return;
+        }
+        // 現行形式のキー（事務所グループ|氏名。パイプはFirebaseキーとして無害な文字なのでエスケープされない）も
+        // 同様に反映する。ここを反映しないと、UIDを持たない職員の経歴更新（異動など）が、保存した本人の
+        // ブラウザ以外（別端末・別ユーザー・再読み込み後など）ではいつまでも古いまま表示され続けてしまう。
+        // ※スペースがアンダースコアに置き換えられていた本当の旧形式（パイプを含まないキー）は対象外のまま。
+        if (key.includes('|')) {
+          window._histCache['hist_' + key] = JSON.stringify(val);
+          try { localStorage.setItem('hist_' + key, JSON.stringify(val)); } catch(e) {}
           return;
         }
         // 旧形式キー（nameのみ）はスペース復元してlocalStorageに書き込まない
