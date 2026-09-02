@@ -984,6 +984,20 @@
     _tryRebuildContent();
   });
 
+// 決定的なUID生成（同じ入力からは常に同じ文字列を生成するハッシュ）。
+// 追加メンバーのuid未設定を穴埋めする際、Math.random()だと端末ごとに毎回違う値を
+// 生成してしまい、経歴データの参照キーが端末間でズレる原因になっていたため、
+// 「どの端末で計算しても必ず同じuidになる」よう決定的な生成方式に変更する。
+function _deterministicUid(seed) {
+  let h1 = 0x811c9dc5, h2 = 0x9e3779b9;
+  for (let i = 0; i < seed.length; i++) {
+    const c = seed.charCodeAt(i);
+    h1 ^= c; h1 = (h1 * 0x01000193) >>> 0;
+    h2 = (h2 ^ c) + ((h2 << 6) + (h2 >>> 2)) >>> 0;
+  }
+  return 'u' + h1.toString(36).padStart(7, '0') + h2.toString(36).padStart(7, '0');
+}
+
   // Listen: added members
   window._addedMembersSyncDone = false;
   window._fbAddedMembers = {};
@@ -999,17 +1013,20 @@
       Object.entries(data).forEach(([key, val]) => {
         try {
           let _uidWasMissing = false;
-          const members = Array.isArray(val) ? val.map(m => {
+          const members = Array.isArray(val) ? val.map((m, idx) => {
             if (!m.uid) {
-              m.uid = 'u' + Math.random().toString(36).slice(2,10).padEnd(8,'0');
+              // key（追加先セクション）+氏名+配列内位置から決定的に生成する。
+              // 同じデータを読んだ端末は必ず同じuidに辿り着くので、書き戻しが
+              // 他端末に伝わるより前に表示しても、端末間でuidがズレることがない。
+              m.uid = _deterministicUid(key + '|' + (m.name || '') + '|' + idx);
               _uidWasMissing = true; // uid未設定のメンバーがいた → 発行したuidをFirebaseに書き戻して固定化する
             }
             return m;
           }) : val;
           window._fbAddedMembers[key] = members;
           try { localStorage.setItem('addedMembers_' + key, JSON.stringify(members)); } catch(e) {}
-          // 新規発行したuidをFirebaseへ保存（これをしないと次回読み込み時にまた別のuidが発行され、
-          // 「氏名」「同部署経験」などuid紐付けの保存データが毎回一致しなくなる）
+          // 新規発行したuidをFirebaseへ保存（決定的生成なので他端末と衝突する心配はないが、
+          // 一度保存しておけば以降はこの分岐自体を通らずに済む）
           if (_uidWasMissing && window.fbSet && window.fbKey) {
             window.fbSet('addedMembers/' + window.fbKey(key), members);
           }
