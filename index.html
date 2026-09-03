@@ -823,23 +823,17 @@
   })();
 
   // ── Listen to all shared data on load ──
-  // Listen: manual relations
+  // Listen: manual relations（Firebaseのメモリキャッシュのみを正として保持する）
   fbListen('manualRels', data => {
     if (data) {
       window._manualRelsCache = Array.isArray(data) ? data : Object.values(data);
-      try { localStorage.setItem('manualRels2', JSON.stringify(window._manualRelsCache)); } catch(e) {}
     }
   });
 
-  // Listen: deletedCards sync
+  // Listen: deletedCards sync（Firebaseのメモリキャッシュのみを正として保持する）
   fbListen('deletedCards', data => {
     if (!data) return;
     window._deletedCards = data;
-    // localStorageにも反映（cardIdをそのまま保存）
-    try {
-      const ids = Object.keys(data);
-      localStorage.setItem('deletedCards', JSON.stringify(ids));
-    } catch(e) {}
   });
 
   // 両リスナー(histories + addedMembers)が初回同期完了したら1回だけ再描画
@@ -896,7 +890,6 @@
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'edu_' + key : 'edu_' + key.replace(/_/g, ' ');
-        localStorage.setItem(lsKey, JSON.stringify(val));
         window._histCache[lsKey] = JSON.stringify(val);
       } catch(e) {}
     });
@@ -910,7 +903,6 @@
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'memo_' + key : 'memo_' + key.replace(/_/g, ' ');
-        localStorage.setItem(lsKey, val);
         window._histCache[lsKey] = val;
       } catch(e) {}
     });
@@ -924,7 +916,6 @@
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'birth_' + key : 'birth_' + key.replace(/_/g, ' ');
-        localStorage.setItem(lsKey, val);
         window._histCache[lsKey] = String(val);
       } catch(e) {}
     });
@@ -932,7 +923,7 @@
   });
 
   // Listen: history updates (realtime sync)
-  // _histSyncDone: 初回同期後はlocalStorage更新のみ行い、再描画は初回1回だけ
+  // Firebaseのみを正として参照するため、メモリキャッシュのみ更新する（localStorageへは書かない）
   window._histSyncDone = false;
   fbListen('histories', data => {
     if (!data) { window._histSyncDone = true; _tryRebuildContent(); return; }
@@ -942,10 +933,9 @@
         // 同一セッション内で自分が直前に保存したキーは上書きしない（競合防止）
         const saved = window._mySavedKeys || new Set();
         if (saved.has(key)) return;
-        // UID形式キー（uid_で始まる）はFirebaseのデータでメモリキャッシュ・localStorageを上書きする
+        // UID形式キー（uid_で始まる）はFirebaseのデータでメモリキャッシュを更新する
         if (key.startsWith('uid_')) {
           window._histCache['hist_' + key] = JSON.stringify(val);
-          try { localStorage.setItem('hist_' + key, JSON.stringify(val)); } catch(e) {}
           return;
         }
         // 現行形式のキー（事務所グループ|氏名。パイプはFirebaseキーとして無害な文字なのでエスケープされない）も
@@ -954,11 +944,9 @@
         // ※スペースがアンダースコアに置き換えられていた本当の旧形式（パイプを含まないキー）は対象外のまま。
         if (key.includes('|')) {
           window._histCache['hist_' + key] = JSON.stringify(val);
-          try { localStorage.setItem('hist_' + key, JSON.stringify(val)); } catch(e) {}
           return;
         }
-        // 旧形式キー（nameのみ）はスペース復元してlocalStorageに書き込まない
-        // （UID移行済みのため不要）
+        // 旧形式キー（nameのみ）は対象外（UID移行済みのため不要）
       } catch(e) {}
     });
     // 初回同期完了フラグを立て、両リスナー揃ったら再描画
@@ -971,10 +959,8 @@
     if (!data) return;
     if (!window._histCache) window._histCache = {};
     Object.entries(data).forEach(([key, val]) => {
-      // Firebase key: spaces→_, |→encoded; restore for localStorage
+      // Firebase key: spaces→_, |→encoded; restore for lookup
       const origKey = key.replace(/___/g, '|').replace(/_/g, ' ');
-      try { localStorage.setItem('mei_' + origKey, val); } catch(e) {}
-      try { localStorage.setItem('mei_' + key, val); } catch(e) {}
       // メモリキャッシュにも保存（uid_プレフィックスのキーも対応）
       window._histCache['mei_' + origKey] = val;
       window._histCache['mei_' + key] = val;
@@ -1026,7 +1012,7 @@ function _deterministicUid(seed) {
             return m;
           }) : val;
           window._fbAddedMembers[key] = members;
-          try { localStorage.setItem('addedMembers_' + key, JSON.stringify(members)); } catch(e) {}
+          // 追加メンバー一覧もFirebaseのみを正として扱うため、localStorageへは保存しない
           // 新規発行したuidをFirebaseへ保存（決定的生成なので他端末と衝突する心配はないが、
           // 一度保存しておけば以降はこの分岐自体を通らずに済む）
           if (_uidWasMissing && window.fbSet && window.fbKey) {
@@ -1671,34 +1657,31 @@ function buildNav(order, navId, orgClass, dataKey) {
   });
 }
 
-// localStorage または メモリキャッシュ（file://環境対応）から経歴データを取得
+// メモリキャッシュ（Firebaseの'histories'から同期されたもの）からのみ経歴データを取得する。
+// 以前はlocalStorageにもフォールバックしていたが、それが「端末ごとに違うデータが
+// 見える」不具合の温床になっていたため、経歴・事務所配置についてはFirebaseのみを
+// 正として参照するように変更した。
 function histGet(key) {
   if (window._histCache && window._histCache[key] !== undefined) return window._histCache[key];
-  try { return localStorage.getItem(key); } catch(e) { return null; }
+  return null;
 }
 
-// プロフィールデータ（生年・学歴・備考）をUID優先で読み書き
+// プロフィールデータ（生年・学歴・備考）をUID優先で読み取る（Firebase同期のメモリキャッシュのみを参照）
 function profileGet(type, name, uid) {
   try {
     if (uid) {
       const uidKey = type + '_uid_' + uid;
-      // メモリキャッシュ優先
       if (window._histCache && window._histCache[uidKey] !== undefined) return window._histCache[uidKey];
-      const v = localStorage.getItem(uidKey);
-      if (v !== null) return v;
     }
-    // 名前ベースのフォールバック
     const nameKey = type + '_' + name;
     if (window._histCache && window._histCache[nameKey] !== undefined) return window._histCache[nameKey];
-    return localStorage.getItem(nameKey) || '';
+    return '';
   } catch(e) { return ''; }
 }
 function profileSet(type, name, uid, val) {
   const key = uid ? type + '_uid_' + uid : type + '_' + name;
-  try {
-    if (val) localStorage.setItem(key, val);
-    else localStorage.removeItem(key);
-  } catch(e) {}
+  if (!window._histCache) window._histCache = {};
+  window._histCache[key] = val || '';
   return key;
 }
 
@@ -1991,25 +1974,16 @@ function officeCodeGet(officeName) {
   return m ? m.code : '';
 }
 
-// 個別編集で保存（localStorage + Firebase）
+// 個別編集で保存（Firebaseのみを正とする）
 function officeCodeSave(officeName, code) {
   window._officeCodeOverrides[officeName] = code;
-  try { localStorage.setItem('officeCode_' + officeName, code); } catch(e) {}
   if (window.fbSet) {
     const fbk = window.fbKey ? window.fbKey(officeName) : officeName;
     window.fbSet('officeCodes/' + fbk, code || null);
   }
 }
 
-// ページ読み込み時：localStorageのキャッシュを反映
-function officeCodeLoadLocal() {
-  ALL_OFFICE_NAMES.forEach(name => {
-    try {
-      const v = localStorage.getItem('officeCode_' + name);
-      if (v !== null) window._officeCodeOverrides[name] = v;
-    } catch(e) {}
-  });
-}
+// officeCodeLoadLocal()は廃止（顧客コードもFirebaseの同期のみを正として参照する）
 
 // Firebaseから他ユーザーの編集分を同期
 function officeCodeSyncFromFirebase() {
@@ -2734,22 +2708,13 @@ function buildSection(officeName, people, sectionId, orgClass) {
   body.className = 'staff-grid';
   body.id = 'grid-' + sectionId;
 
-  // Firebase同期済みならFBキャッシュを最優先、未同期ならlocalStorageをフォールバックに使用
-  let localMembers = [];
-  if (window._addedMembersSyncDone && window._fbAddedMembers) {
-    // Firebase同期完了済み → FBキャッシュを信頼
-    localMembers = window._fbAddedMembers[sectionId] || [];
-  } else {
-    // Firebase未同期 → localStorageから読む（ページ読み込み直後の初回buildContent時）
-    try {
-      const r = localStorage.getItem('addedMembers_' + sectionId);
-      if (r) localMembers = JSON.parse(r);
-    } catch(e) {}
-  }
+  // 追加メンバーはFirebase（メモリキャッシュ）のみを正として参照する。
+  // Firebase同期が完了する前（ページ読み込み直後の一瞬）は空として扱い、
+  // 同期完了時に自動で再描画されるのを待つ（localStorageへのフォールバックは行わない）
+  const localMembers = (window._fbAddedMembers && window._fbAddedMembers[sectionId]) || [];
 
-  // 削除済みcardIdリストを取得
+  // 削除済みcardIdリストを取得（Firebaseのメモリキャッシュのみを参照）
   let _deletedIds = [];
-  try { _deletedIds = JSON.parse(localStorage.getItem('deletedCards') || '[]'); } catch(e) {}
   if (window._deletedCards) {
     Object.keys(window._deletedCards).forEach(k => {
       if (!_deletedIds.includes(k)) _deletedIds.push(k);
@@ -3347,15 +3312,16 @@ function saveHistory(cardId,e) {
   const _org = card.dataset.org || '';
   const _histKey = _uid ? 'uid_' + _uid : (_org ? _org + '|' + card.dataset.name : card.dataset.name);
   const _histCacheKey = 'hist_' + _histKey;
-  try { localStorage.setItem(_histCacheKey, JSON.stringify(history)); } catch(e){}
+  // 経歴データはFirebaseのみを正として扱うため、localStorageへは保存しない
+  // （メモリキャッシュにはこの場で即時反映し、Firebaseへの書き込みはこの後で行う）
   if (!window._histCache) window._histCache = {};
   window._histCache[_histCacheKey] = JSON.stringify(history);
   // 姓キーへの書き込みは廃止（フルネームキーのみ使用）
-  // 備考を保存
+  // 備考を保存（メモリキャッシュに即時反映し、Firebaseへ書き込む）
   const _memoInput = document.getElementById('memo-' + cardId);
   if (_memoInput) {
     const _memo = _memoInput.value.trim();
-    try { localStorage.setItem('memo_' + _histKey, _memo); } catch(e) {}
+    window._histCache['memo_' + _histKey] = _memo;
     if (window.fbSet && window.fbKey) {
       window.fbSet('memos/' + window.fbKey(_histKey), _memo || null);
     }
@@ -3374,7 +3340,7 @@ function saveHistory(cardId,e) {
       dept: _deptInput ? _deptInput.value.trim() : ''
     };
     if (_edu.univ || _edu.faculty || _edu.dept) {
-      try { localStorage.setItem('edu_' + _histKey, JSON.stringify(_edu)); } catch(e) {}
+      window._histCache['edu_' + _histKey] = JSON.stringify(_edu);
       if (window.fbSet && window.fbKey) {
         window.fbSet('education/' + window.fbKey(_histKey), _edu);
       }
@@ -3394,7 +3360,7 @@ function saveHistory(cardId,e) {
   if (_birthInput && _birthInput.value) {
     const _by = parseInt(_birthInput.value);
     if (_by >= 1940 && _by <= 2010) {
-      try { localStorage.setItem('birth_' + _histKey, _by); } catch(e) {}
+      window._histCache['birth_' + _histKey] = String(_by);
       if (window.fbSet && window.fbKey) {
         window.fbSet('birthYears/' + window.fbKey(_histKey), _by);
       }
@@ -4025,16 +3991,13 @@ function getFullName(rawName, office, uid) {
   const { sei, mei: builtinMei } = parseName(rawName);
   let savedMei = '';
   try {
-    // UIDがあればUID基準のキーを最優先
-    if (uid) savedMei = localStorage.getItem('mei_uid_' + uid) || '';
+    // UIDがあればUID基準のキーを最優先（Firebase同期のメモリキャッシュのみ参照）
+    if (uid && window._histCache) savedMei = window._histCache['mei_uid_' + uid] || '';
     // フォールバック：rawName|office、rawName
-    if (!savedMei) savedMei = localStorage.getItem('mei_' + meiKey(rawName, office))
-            || localStorage.getItem('mei_' + rawName)
-            || '';
-    // histCacheも確認
     if (!savedMei && window._histCache) {
-      if (uid) savedMei = window._histCache['mei_uid_' + uid] || '';
-      if (!savedMei) savedMei = window._histCache['mei_' + meiKey(rawName, office)] || '';
+      savedMei = window._histCache['mei_' + meiKey(rawName, office)]
+              || window._histCache['mei_' + rawName]
+              || '';
     }
   } catch(e) {}
   const mei = savedMei || builtinMei;
@@ -4082,10 +4045,12 @@ function _openNameModalInner(cardId, familyName, office, uid) {
   const { sei: parsedSei, mei: parsedMei } = parseName(familyName);
   let savedMei = '';
   try {
-    if (uid) savedMei = localStorage.getItem('mei_uid_' + uid) || '';
-    if (!savedMei) savedMei = localStorage.getItem('mei_' + meiKey(familyName, office))
-            || localStorage.getItem('mei_' + familyName)
-            || '';
+    if (uid && window._histCache) savedMei = window._histCache['mei_uid_' + uid] || '';
+    if (!savedMei && window._histCache) {
+      savedMei = window._histCache['mei_' + meiKey(familyName, office)]
+              || window._histCache['mei_' + familyName]
+              || '';
+    }
   } catch(ex) {}
   seiInput.value = parsedSei;
   meiInput.value = savedMei || parsedMei;
@@ -4110,26 +4075,26 @@ function saveNameModal() {
   const origSei = overlay.dataset.origSei;
   const sei = document.getElementById('nameModalSei').value.trim();
   const mei = document.getElementById('nameModalMei').value.trim();
-  // Save mei to localStorage (keyed by UID if available, otherwise by name+office)
+  // 名（mei）はメモリキャッシュに即時反映し、Firebaseへ書き込む（keyed by UID if available, otherwise by name+office）
   try {
     const _uid = overlay.dataset.origUid || '';
     const _mk = meiKey(overlay.dataset.origFullName, overlay.dataset.origOffice, _uid);
+    if (!window._histCache) window._histCache = {};
     if (mei) {
-      localStorage.setItem('mei_' + _mk, mei);
+      window._histCache['mei_' + _mk] = mei;
       if (window.fbSet && window.fbKey) window.fbSet('meis/' + window.fbKey(_mk), mei);
     } else {
-      localStorage.removeItem('mei_' + _mk);
+      delete window._histCache['mei_' + _mk];
       if (window.fbSet && window.fbKey) window.fbSet('meis/' + window.fbKey(_mk), null);
     }
   } catch(e) {}
   const newFullName = mei ? (sei || origSei) + ' ' + mei : (sei || origSei);
   // addedMembersの名前を更新（会社関係など追加メンバーの姓変更に対応）
+  // Firebaseのメモリキャッシュ（window._fbAddedMembers）を正として走査する
   if (sei && sei !== origSei) {
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const lsKey = localStorage.key(i);
-        if (!lsKey || !lsKey.startsWith('addedMembers_')) continue;
-        let members = JSON.parse(localStorage.getItem(lsKey) || '[]');
+      Object.keys(window._fbAddedMembers || {}).forEach(sectionId => {
+        let members = [...(window._fbAddedMembers[sectionId] || [])];
         let changed = false;
         members = members.map(m => {
           const mFullName = m.name;
@@ -4141,11 +4106,10 @@ function saveNameModal() {
           return m;
         });
         if (changed) {
-          localStorage.setItem(lsKey, JSON.stringify(members));
-          const sectionId = lsKey.replace('addedMembers_', '');
-          if (window.fbSet) window.fbSet('addedMembers/' + sectionId, members);
+          window._fbAddedMembers[sectionId] = members;
+          if (window.fbSet && window.fbKey) window.fbSet('addedMembers/' + window.fbKey(sectionId), members);
           // manualRelsも更新
-          let rels = JSON.parse(localStorage.getItem('manualRels2') || '[]');
+          let rels = loadManualRels();
           let relsChanged = false;
           rels = rels.map(r => {
             const nr = {...r};
@@ -4154,11 +4118,11 @@ function saveNameModal() {
             return nr;
           });
           if (relsChanged) {
-            localStorage.setItem('manualRels2', JSON.stringify(rels));
+            saveManualRels(rels);
             if (window.fbSet) window.fbSet('manualRels', rels);
           }
         }
-      }
+      });
     } catch(e) {}
   }
   // Update displayed name
@@ -4300,23 +4264,12 @@ function submitAddMember() {
     note: '手動追加'
   };
 
-  // Firebaseキャッシュから最新のmembersを取得（最も信頼性が高い）
+  // Firebaseキャッシュから最新のmembersを取得（これを正とする）
   if (!window._fbAddedMembers) window._fbAddedMembers = {};
   let members = [...(window._fbAddedMembers[sectionId] || [])];
-  // localStorageにもっと多くあれば採用
-  try {
-    const localKey = 'addedMembers_' + sectionId;
-    const r = localStorage.getItem(localKey);
-    if (r) {
-      const lm = JSON.parse(r);
-      if (lm.length > members.length) members = lm;
-    }
-  } catch(e) {}
   members.push(newPerson);
-  // メモリキャッシュに反映
+  // メモリキャッシュに反映（localStorageへは保存しない）
   window._fbAddedMembers[sectionId] = members;
-  // localStorageにも保存
-  try { localStorage.setItem('addedMembers_' + sectionId, JSON.stringify(members)); } catch(e) {}
   // Sync to Firebase（書き込み後のfbListen発火によるリビルドを3秒間抑制）
   window._suppressRebuild = true;
   clearTimeout(window._suppressRebuildTimer);
@@ -4535,16 +4488,12 @@ function _closeAuth() {
       if (!seiToNames[sei]) seiToNames[sei] = new Set();
       seiToNames[sei].add(rawName);
     });
-    // For seis with multiple people, the sei-only hist_ key is ambiguous → remove from localStorage AND Firebase
+    // For seis with multiple people, the sei-only hist_ key is ambiguous → remove from Firebase
     Object.entries(seiToNames).forEach(([sei, names]) => {
       if (names.size > 1) {
-        const lsKey = 'hist_' + sei;
-        const hasLocal = !!localStorage.getItem(lsKey);
-        if (hasLocal) localStorage.removeItem(lsKey);
-        // localStorage・Firebase両方から削除（キーがあってもなくても実行）
-        (function(s, hadLocal) {
+        (function(s) {
           function _delFb() {
-            if (window.fbSet && window.fbKey) {
+            if (window.fbSet && window.fbKey && window.fbGet) {
               window.fbGet('histories/' + window.fbKey(s)).then(val => {
                 if (val !== null) {
                   console.log('Removing ambiguous hist key: hist_' + s + ' (used by', [...names].join(', '), ')');
@@ -4554,28 +4503,15 @@ function _closeAuth() {
             } else { setTimeout(_delFb, 500); }
           }
           _delFb();
-        })(sei, hasLocal);
+        })(sei);
       }
     });
   } catch(e) {}
 })();
 
-// Clean up bad mei_ values (e.g. "名前" placeholder accidentally saved)
-(function cleanBadMei() {
-  try {
-    const badValues = ['名前', 'name', 'Name'];
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('mei_')) {
-        const val = localStorage.getItem(key);
-        if (badValues.includes(val)) {
-          localStorage.removeItem(key);
-          console.log('Cleaned bad mei:', key, '=', val);
-        }
-      }
-    }
-  } catch(e) {}
-  // Also clean Firebase old bad meis when ready
+// cleanBadMei()のlocalStorage走査部分は廃止（Firebase側には影響しない一時的な処理だったため）。
+// Firebase側の既知の不正値クリーンアップのみ残す。
+(function() {
   const _cleanFbInterval = setInterval(() => {
     if (window.fbSet && window.fbReady) {
       clearInterval(_cleanFbInterval);
@@ -4665,13 +4601,27 @@ function openCleanupTool() {
   overlay.style.display = 'flex';
 }
 
+// 氏名からuidを検索するヘルパー（中国・四国の静的データが対象）
+function _findUidForCleanupName(name) {
+  for (const org of ['chugoku', 'shikoku']) {
+    for (const people of Object.values(DATA[org] || {})) {
+      for (const p of people) {
+        if (p.name === name && p.uid) return p.uid;
+      }
+    }
+  }
+  return null;
+}
+
 function fixOnePerson(name) {
   const correct = window._correctHistories[name];
   if (!correct) { alert('元データが見つかりません: ' + name); return; }
-  try { localStorage.setItem('hist_' + name, JSON.stringify(correct)); } catch(e) {}
+  // uidが判明していればuid宛先に書き込む（判明しない曖昧な姓のみエントリは従来通り姓のみキーへ）
+  const uid = _findUidForCleanupName(name);
+  const targetKey = uid ? ('uid_' + uid) : name;
   function _fix() {
     if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey(name), correct);
+      window.fbSet('histories/' + (uid ? targetKey : window.fbKey(targetKey)), correct);
       alert('✅ ' + name + ' のデータを修正しました。');
       openCleanupTool(); // 画面更新
     } else { setTimeout(_fix, 500); }
@@ -4682,10 +4632,11 @@ function fixOnePerson(name) {
 function runAllCleanup() {
   if (!confirm('全員の経歴データを元データで上書きします。よろしいですか？')) return;
   Object.entries(window._correctHistories).forEach(([name, hist]) => {
-    try { localStorage.setItem('hist_' + name, JSON.stringify(hist)); } catch(e) {}
+    const uid = _findUidForCleanupName(name);
+    const targetKey = uid ? ('uid_' + uid) : name;
     function _fix(n, h) {
       if (window.fbSet && window.fbKey) {
-        window.fbSet('histories/' + window.fbKey(n), h);
+        window.fbSet('histories/' + (uid ? targetKey : window.fbKey(targetKey)), h);
       } else { setTimeout(() => _fix(n, h), 500); }
     }
     _fix(name, hist);
@@ -4694,10 +4645,8 @@ function runAllCleanup() {
   document.getElementById('cleanupToolOverlay').remove();
 }
 
-// Firebase上の「金光」を「金光 敬史」に1回だけ修正
+// Firebase上の「金光」を「金光 敬史」に修正（該当が無くなれば自然に何もしなくなる）
 (function() {
-  localStorage.removeItem('_kinmitsu_fixed'); // 強制再実行
-  if (false) return;
   function _fix() {
     if (!window.fbGet || !window.fbSet) { setTimeout(_fix, 800); return; }
     // addedMembersを全件チェックして「金光」を「金光 敬史」に修正
@@ -4712,7 +4661,7 @@ function runAllCleanup() {
         });
         if (changed) {
           window.fbSet('addedMembers/' + sectionId, fixed);
-          localStorage.setItem('addedMembers_' + sectionId, JSON.stringify(fixed));
+          if (window._fbAddedMembers) window._fbAddedMembers[sectionId] = fixed;
         }
       });
     });
@@ -4728,10 +4677,9 @@ function runAllCleanup() {
       });
       if (changed) {
         window.fbSet('manualRels', fixed);
-        localStorage.setItem('manualRels2', JSON.stringify(fixed));
+        window._manualRelsCache = fixed;
       }
     });
-    localStorage.setItem('_kinmitsu_fixed', '1');
   }
   _fix();
 })();
@@ -4743,7 +4691,6 @@ function runAllCleanup() {
     if (!window.fbSet || !window.fbKey) { setTimeout(_del, 500); return; }
     _ambiguousSeis.forEach(sei => {
       window.fbSet('histories/' + window.fbKey(sei), null);
-      try { localStorage.removeItem('hist_' + sei); } catch(e) {}
     });
     console.log('重複姓のみキーをFirebaseから削除しました');
   }
@@ -4752,8 +4699,6 @@ function runAllCleanup() {
 
 // Firebaseデータ(nameキー)をUID形式に移行
 (function migrateToUid() {
-  // 毎回実行して確実に移行する
-  // if (localStorage.getItem('_uidMigrated_v2')) return;
   function _migrate() {
     if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_migrate, 800); return; }
     // 全人物のname→uidマッピングを作成
@@ -4764,7 +4709,7 @@ function runAllCleanup() {
       });
     });
     window.fbGet('histories').then(data => {
-      if (!data) { localStorage.setItem('_uidMigrated_v2','1'); return; }
+      if (!data) return;
       const promises = [];
       Object.entries(data).forEach(([fbKey, val]) => {
         const origKey = fbKey.replace(/_/g,' ').replace(/\|/g,'|');
@@ -4774,17 +4719,16 @@ function runAllCleanup() {
         const nameOnly = origKey.includes('|') ? origKey.split('|')[1] : origKey;
         const uid = nameToUid[nameOnly];
         if (uid) {
-          promises.push(window.fbSet('histories/uid_' + uid, val));
-          promises.push(window.fbSet('histories/' + fbKey, null));
-          try {
-            localStorage.setItem('hist_uid_' + uid, JSON.stringify(val));
-            localStorage.removeItem('hist_' + origKey);
-            localStorage.removeItem('hist_' + nameOnly);
-          } catch(e) {}
+          // uid宛先に既に何か保存されていれば、それを正としてこの移行では上書きしない
+          // （本人の最新の編集内容を、古い姓のみキーの内容で巻き戻さないため）
+          promises.push(
+            window.fbGet('histories/uid_' + uid).then(existing => {
+              if (!existing) return window.fbSet('histories/uid_' + uid, val);
+            }).then(() => window.fbSet('histories/' + fbKey, null))
+          );
         }
       });
       Promise.all(promises).then(() => {
-        localStorage.setItem('_uidMigrated_v2','1');
         console.log('✅ Firebase historiesをUID形式に移行完了');
       });
     });
@@ -5563,7 +5507,6 @@ function goToKouji(personName, e) {
 // Firebase起動時に工事データを同期
 koujiSyncFromFirebase();
 koujiInitScoreAwardStatusListener();
-officeCodeLoadLocal();
 officeCodeRefreshAllBadges();
 officeCodeSyncFromFirebase();
 projectListInit();
@@ -5912,46 +5855,46 @@ saveHistory = function(cardId, e) {
   _del();
 })();
 
-// manualRelsの姓のみキーをフルネームに修正（localStorageを即時書き換え）
+// Firebaseからの初回同期（histories/addedMembers）が届くまで待ってから実行する
+// （localStorageと違い、Firebase経由のメモリキャッシュは非同期に届くため）
+function _waitForInitialSync(cb, tries) {
+  tries = tries || 0;
+  if (window._histSyncDone && window._addedMembersSyncDone) { cb(); return; }
+  if (tries > 50) { cb(); return; } // 約10秒待っても届かなければ、そのまま実行する
+  setTimeout(() => _waitForInitialSync(cb, tries + 1), 200);
+}
+
 // addedMembersとmanualRelsの姓のみキーをhist_キーで修正
 (function fixSeiOnlyNames() {
-  try {
-    // hist_キーからフルネームマップを作成
+  _waitForInitialSync(() => { try {
+    // メモリキャッシュ（Firebase同期済み）からフルネームマップを作成
     const seiToFull = new Map();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith('hist_')) continue;
+    Object.keys(window._histCache || {}).forEach(key => {
+      if (!key.startsWith('hist_')) return;
       const name = key.replace('hist_', '');
-      if (name.match(/[ 　]/)) {
-        seiToFull.set(name.split(/[ 　]/)[0], name);
-      }
-    }
+      if (name.match(/[ 　]/)) seiToFull.set(name.split(/[ 　]/)[0], name);
+    });
     if (!seiToFull.size) return;
 
     // addedMembersの姓のみエントリを修正
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith('addedMembers_')) continue;
-      try {
-        let members = JSON.parse(localStorage.getItem(key) || '[]');
-        let changed = false;
-        members = members.map(m => {
-          if (m.name && !m.name.match(/[ 　]/) && seiToFull.has(m.name)) {
-            changed = true;
-            return {...m, name: seiToFull.get(m.name)};
-          }
-          return m;
-        });
-        if (changed) {
-          localStorage.setItem(key, JSON.stringify(members));
-          const sectionId = key.replace('addedMembers_', '');
-          if (window.fbSet) window.fbSet('addedMembers/' + sectionId, members);
+    Object.keys(window._fbAddedMembers || {}).forEach(sectionId => {
+      let members = [...(window._fbAddedMembers[sectionId] || [])];
+      let changed = false;
+      members = members.map(m => {
+        if (m.name && !m.name.match(/[ 　]/) && seiToFull.has(m.name)) {
+          changed = true;
+          return {...m, name: seiToFull.get(m.name)};
         }
-      } catch(e) {}
-    }
+        return m;
+      });
+      if (changed) {
+        window._fbAddedMembers[sectionId] = members;
+        if (window.fbSet) window.fbSet('addedMembers/' + sectionId, members);
+      }
+    });
 
     // manualRelsの姓のみキーも修正
-    let rels = JSON.parse(localStorage.getItem('manualRels2') || '[]');
+    let rels = loadManualRels();
     let relsChanged = false;
     rels = rels.map(r => {
       const nr = {...r};
@@ -5960,35 +5903,27 @@ saveHistory = function(cardId, e) {
       return nr;
     });
     if (relsChanged) {
-      localStorage.setItem('manualRels2', JSON.stringify(rels));
+      saveManualRels(rels);
       if (window.fbSet) window.fbSet('manualRels', rels);
     }
-  } catch(e) {}
+  } catch(e) {} });
 })();
 
 // manualRelsの姓のみキーを修正（スペースなし＝姓のみとみなして全addedMembersと照合）
 (function fixManualRelsNames() {
-  try {
-    let rels = JSON.parse(localStorage.getItem('manualRels2') || '[]');
+  _waitForInitialSync(() => { try {
+    let rels = loadManualRels();
     if (!rels.length) return;
-    // 全addedMembersとhist_キーからフルネーム候補を収集
+    // 全addedMembersとhist_キーからフルネーム候補を収集（メモリキャッシュから）
     const knownFullNames = new Map(); // sei → fullName
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      let name = null;
-      if (key.startsWith('hist_')) name = key.replace('hist_', '');
-      else if (key.startsWith('addedMembers_')) {
-        try {
-          const members = JSON.parse(localStorage.getItem(key) || '[]');
-          members.forEach(m => { if (m.name && m.name.match(/[ 　]/)) knownFullNames.set(m.name.split(/[ 　]/)[0], m.name); });
-        } catch(e) {}
-        continue;
-      }
-      if (name && name.match(/[ 　]/)) {
-        knownFullNames.set(name.split(/[ 　]/)[0], name);
-      }
-    }
+    Object.keys(window._histCache || {}).forEach(key => {
+      if (!key.startsWith('hist_')) return;
+      const name = key.replace('hist_', '');
+      if (name.match(/[ 　]/)) knownFullNames.set(name.split(/[ 　]/)[0], name);
+    });
+    Object.values(window._fbAddedMembers || {}).forEach(members => {
+      (members || []).forEach(m => { if (m.name && m.name.match(/[ 　]/)) knownFullNames.set(m.name.split(/[ 　]/)[0], m.name); });
+    });
     let changed = false;
     rels = rels.map(r => {
       const nr = {...r};
@@ -5997,10 +5932,10 @@ saveHistory = function(cardId, e) {
       return nr;
     });
     if (changed) {
-      localStorage.setItem('manualRels2', JSON.stringify(rels));
+      saveManualRels(rels);
       if (window.fbSet) window.fbSet('manualRels', rels);
     }
-  } catch(e) {}
+  } catch(e) {} });
 })();
 
 // manualRelsの「金光」（姓のみ）を「金光 敬史」に修正
@@ -6018,7 +5953,7 @@ saveHistory = function(cardId, e) {
       });
       if (changed) {
         window.fbSet('manualRels', fixed);
-        try { localStorage.setItem('manualRels2', JSON.stringify(fixed)); } catch(e) {}
+        window._manualRelsCache = fixed;
         console.log('金光の姓のみキーをフルネームに修正しました');
       }
     });
@@ -6045,78 +5980,93 @@ saveHistory = function(cardId, e) {
   _del();
 })();
 
-// 東智の正しい経歴を強制上書き（別人データ混入の修正）
+// 東智の正しい経歴を初回のみ適用（別人データ混入の修正）。
+// ※以前はここから山口博久までの6件、毎回無条件でFirebaseに上書きしていたため、
+// 　本人の経歴を「経歴を編集・追記する」で正しく更新しても、次に誰かがページを
+// 　開くたびに元の古いデータへ静かに巻き戻ってしまう状態だった。
+// 　uid宛先の書き込みに変更し、「まだ何も保存されていない場合のみ」初期値として
+// 　適用するよう修正（すでに保存されているデータ＝本人の編集or適用済みの結果には
+// 　一切触れない）。原因だった姓のみキーは削除して残さない。
 (function() {
+  const uid = 'uezq4s0o7'; // 東 智
   const h = [{"year": "R6", "endYear": "R8", "office": "松山河川国道事務所", "dept": "防災課", "role": "専門職(機械)"}, {"year": "R8", "endYear": "現在", "office": "肱川ダム統合管理事務所", "dept": "", "role": "建設専門官（機械）"}];
-  try { localStorage.setItem('hist_東 智', JSON.stringify(h)); } catch(e) {}
-  try { localStorage.setItem('hist_東', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('東 智'), h);
-      window.fbSet('histories/' + window.fbKey('東'), h);
-    } else { setTimeout(_fix, 500); }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('東'), null);
+    window.fbSet('histories/' + window.fbKey('東 智'), null);
   }
   _fix();
 })();
 
-// 岡田弘晃の正しい経歴を強制上書き（別人データ混入の修正）
+// 岡田弘晃の正しい経歴を初回のみ適用（別人データ混入の修正）
 (function() {
+  const uid = 'u543bn375'; // 岡田 弘晃
   const h = [{"year": "R2", "endYear": "R3", "office": "再任用", "dept": "", "role": ""}, {"year": "R3", "endYear": "R4", "office": "松江国道事務所", "dept": "工務課", "role": "施設係長"}, {"year": "R4", "endYear": "R4", "office": "松江国道事務所", "dept": "計画課", "role": "指導員"}];
-  try { localStorage.setItem('hist_岡田 弘晃', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('岡田 弘晃'), h);
-    } else { setTimeout(_fix, 500); }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('岡田 弘晃'), null);
   }
   _fix();
 })();
 
-// 岡田直人の正しい経歴を強制上書き（別人データ混入の修正）
+// 岡田直人の正しい経歴を初回のみ適用（別人データ混入の修正）
 (function() {
+  const uid = 'uq5y22j9z'; // 岡田 直人
   const h = [{"year": "R4", "endYear": "R4", "office": "松江国道事務所", "dept": "計画課", "role": "課長"}];
-  try { localStorage.setItem('hist_岡田 直人', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('岡田 直人'), h);
-    } else { setTimeout(_fix, 500); }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('岡田 直人'), null);
   }
   _fix();
 })();
 
-// 山口博久の正しい経歴を強制上書き（別人データ混入の修正）
+// 山口博久の正しい経歴を初回のみ適用（別人データ混入の修正）
 (function() {
+  const uid = 'u3unznl59'; // 山口 博久
   const h = [{"year": "R4", "endYear": "R5", "office": "岡山河川事務所", "dept": "管理第一課", "role": "専門調査官"}, {"year": "R5", "endYear": "R6", "office": "松江国道事務所", "dept": "管理第二課", "role": "建設監督官"}, {"year": "R6", "endYear": "R8", "office": "松江国道事務所", "dept": "管理第二課", "role": "専門調査官"}];
-  try { localStorage.setItem('hist_山口 博久', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('山口 博久'), h);
-    } else { setTimeout(_fix, 500); }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('山口 博久'), null);
   }
   _fix();
 })();
 
-// 木村彰の正しい経歴を強制上書き（別人データ混入の修正）
+// 木村彰の正しい経歴を初回のみ適用（別人データ混入の修正）
 (function() {
+  const uid = 'u0drdb4fd'; // 木村 彰
   const h = [{"year": "R4", "endYear": "R4", "office": "広島国道事務所", "dept": "管理第二課", "role": "技術情報管理官"}];
-  try { localStorage.setItem('hist_木村 彰', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('木村 彰'), h);
-    } else { setTimeout(_fix, 500); }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('木村 彰'), null);
   }
   _fix();
 })();
 
-// 岡田源三の正しい経歴を強制上書き（別人データ混入の修正）
+// 岡田源三の正しい経歴を初回のみ適用（別人データ混入の修正）
 (function() {
+  const uid = 'ue7x4l7sr'; // 岡田 源三
   const h = [{"year": "R4", "endYear": "R5", "office": "温井ダム管理所", "dept": "", "role": "管理係長"}, {"year": "R5", "endYear": "R8", "office": "浜田河川国道事務所", "dept": "工務課", "role": "機械係長"}];
-  try { localStorage.setItem('hist_岡田 源三', JSON.stringify(h)); } catch(e) {}
   function _fix() {
-    if (window.fbSet && window.fbKey) {
-      window.fbSet('histories/' + window.fbKey('岡田 源三'), h);
-    } else {
-      setTimeout(_fix, 500);
-    }
+    if (!window.fbGet || !window.fbSet || !window.fbKey) { setTimeout(_fix, 800); return; }
+    window.fbGet('histories/uid_' + uid).then(existing => {
+      if (!existing) window.fbSet('histories/uid_' + uid, h);
+    });
+    window.fbSet('histories/' + window.fbKey('岡田 源三'), null);
   }
   _fix();
 })();
@@ -6192,11 +6142,13 @@ function confirmDelete() {
         countEl.textContent = n + '名';
       }
     }
-    // Clear localStorage for this person
+    // 経歴データを消去（メモリキャッシュのみ。Firebase側は基本的に削除済みカードとして
+    // 扱われるため、履歴データ自体は残っても実害はないが、念のためメモリ上はクリアする）
     try {
-      const pn = parseName(name);
-      localStorage.removeItem('hist_' + name);
-      localStorage.removeItem('mei_' + name);
+      if (window._histCache) {
+        delete window._histCache['hist_' + name];
+        if (uid) delete window._histCache['hist_uid_' + uid];
+      }
     } catch(ex) {}
     // addedMembersから削除（メンバー追加で登録された人の場合）
     // 経歴の異動により表示上のセクション（grid）と、addedMembers上の実際の保存先セクションが
@@ -6204,30 +6156,17 @@ function confirmDelete() {
     // 探して削除する（uidが分かればuidで、無ければ氏名で照合する）
     try {
       const sectionIds = new Set(Object.keys(window._fbAddedMembers || {}));
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('addedMembers_')) sectionIds.add(k.replace('addedMembers_', ''));
-        }
-      } catch(e) {}
       const gridSectionId = grid ? grid.id.replace('grid-', '') : null;
       if (gridSectionId) sectionIds.add(gridSectionId);
 
       sectionIds.forEach(sectionId => {
-        const localKey = 'addedMembers_' + sectionId;
-        let members = [];
-        try { members = JSON.parse(localStorage.getItem(localKey) || '[]'); } catch(e) {}
-        // file://環境でlocalStorageが使えない場合は_fbAddedMembersから取得
-        if (members.length === 0 && window._fbAddedMembers && window._fbAddedMembers[sectionId]) {
-          members = [...(window._fbAddedMembers[sectionId] || [])];
-        }
+        const members = [...((window._fbAddedMembers && window._fbAddedMembers[sectionId]) || [])];
         if (!members.length) return;
         const filtered = members.filter(p => uid ? (p.uid !== uid) : (p.name !== name));
         if (filtered.length !== members.length) {
           // addedMembersに含まれていた → そこから削除
           if (!window._fbAddedMembers) window._fbAddedMembers = {};
           window._fbAddedMembers[sectionId] = filtered;
-          try { localStorage.setItem(localKey, JSON.stringify(filtered)); } catch(e) {}
           if (window.fbSet && window.fbKey) {
             window.fbSet('addedMembers/' + window.fbKey(sectionId), filtered.length ? filtered : null);
           }
@@ -6243,11 +6182,9 @@ function confirmDelete() {
         window.fbSet('deletedCards/' + cardId, true);
         if (uid) window.fbSet('deletedCards/uid_' + uid, true);
       }
-      let deleted = [];
-      try { deleted = JSON.parse(localStorage.getItem('deletedCards') || '[]'); } catch(e) {}
-      if (!deleted.includes(cardId)) deleted.push(cardId);
-      if (uid && !deleted.includes('uid_' + uid)) deleted.push('uid_' + uid);
-      localStorage.setItem('deletedCards', JSON.stringify(deleted));
+      if (!window._deletedCards) window._deletedCards = {};
+      window._deletedCards[cardId] = true;
+      if (uid) window._deletedCards['uid_' + uid] = true;
     } catch(ex) {}
   }
   closeDeleteModal();
@@ -6522,19 +6459,15 @@ function switchTab(tab) {
     // CO_RELSを再生成（関東・addedMembersを含む）
     CO_RELS = buildCoRelations();
     // マップ表示時：外部ノードのみ追加・更新（全リセットしない）
-    // 古い「金光」など姓のみキーを修正してから再構築
+    // 古い「金光」など姓のみキーを修正してから再構築（Firebase同期のメモリキャッシュを参照）
     try {
-      let rels = JSON.parse(localStorage.getItem('manualRels2') || '[]');
+      let rels = loadManualRels();
       let changed = false;
       // addedMembersから実際の登録名を取得
       const knownNames = new Set();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('addedMembers_')) {
-          const members = JSON.parse(localStorage.getItem(key) || '[]');
-          members.forEach(m => knownNames.add(m.name));
-        }
-      }
+      Object.values(window._fbAddedMembers || {}).forEach(members => {
+        (members || []).forEach(m => knownNames.add(m.name));
+      });
       // 姓のみの名前を修正（knownNamesにフルネームがあれば置換）
       rels = rels.map(r => {
         const nr = {...r};
@@ -6546,7 +6479,7 @@ function switchTab(tab) {
         return nr;
       });
       if (changed) {
-        localStorage.setItem('manualRels2', JSON.stringify(rels));
+        saveManualRels(rels);
         if (window.fbSet) window.fbSet('manualRels', rels);
       }
     } catch(e) {}
@@ -6871,13 +6804,11 @@ function buildCoRelations() {
 let CO_RELS = buildCoRelations();
 
 function loadManualRels() {
-  // _manualRelsCacheを優先（localStorage不要）
-  if (window._manualRelsCache && window._manualRelsCache.length > 0) return window._manualRelsCache;
-  try { return JSON.parse(localStorage.getItem('manualRels2')||'[]'); } catch(e) { return []; }
+  // Firebaseから同期されたメモリキャッシュのみを正として参照する
+  return window._manualRelsCache || [];
 }
 function saveManualRels(r) {
   window._manualRelsCache = r;
-  try { localStorage.setItem('manualRels2', JSON.stringify(r)); } catch(e) {}
 }
 
 function getRelations(name) {
@@ -7058,8 +6989,12 @@ function buildRelSidebar() {
   list.innerHTML = '';
 
   // Group by org → office
-  const groups = { chugoku: {}, shikoku: {} };
+  // ※以前は中国・四国の2グループのみを想定していたため、それ以外の地整（九州など）の
+  // 　人物が混ざっていると例外が発生していた。存在する org キーすべてに対応できるよう
+  // 　動的にグループを作成する。
+  const groups = {};
   REL_PERSONS_DEDUP.forEach(p => {
+    if (!groups[p.org]) groups[p.org] = {};
     const g = groups[p.org];
     if (!g[p.office]) g[p.office] = [];
     g[p.office].push(p);
@@ -7697,18 +7632,7 @@ function _getAllPersons() {
     });
   });
 
-  // localStorageからも補完
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith('addedMembers_')) continue;
-      const members = JSON.parse(localStorage.getItem(key) || '[]');
-      members.forEach(m => {
-        const k = m.uid || m.name;
-        if (!seen.has(k)) { seen.add(k); all.push({ name: m.name, uid: m.uid||'', office: m.office || '', org: 'chugoku' }); }
-      });
-    }
-  } catch(e) {}
+  // addedMembersはFirebase同期済みのメモリキャッシュのみを正として扱う（localStorageは見ない）
   return all;
 }
 
