@@ -1015,10 +1015,12 @@ function _deterministicUid(seed) {
           let _uidWasMissing = false;
           const members = Array.isArray(val) ? val.map((m, idx) => {
             if (!m.uid) {
-              // key（追加先セクション）+氏名+配列内位置から決定的に生成する。
-              // 同じデータを読んだ端末は必ず同じuidに辿り着くので、書き戻しが
-              // 他端末に伝わるより前に表示しても、端末間でuidがズレることがない。
-              m.uid = _deterministicUid(key + '|' + (m.name || '') + '|' + idx);
+              // key（追加先セクション）+氏名 から決定的に生成する。
+              // ※以前は配列内位置(idx)も種にしていたが、同じセクション内の別メンバーが
+              // 　削除・追加されて配列の並び順がずれると、まだuid未確定の人のuidが
+              // 　端末やタイミングによって変わってしまう不安定さがあったため、
+              // 　位置に依存しない氏名＋セクションのみを種にするよう変更した。
+              m.uid = _deterministicUid(key + '|' + (m.name || ''));
               _uidWasMissing = true; // uid未設定のメンバーがいた → 発行したuidをFirebaseに書き戻して固定化する
             }
             return m;
@@ -3306,6 +3308,39 @@ function saveHistory(cardId,e) {
   // 表示は新→古順（prependで先頭に積まれている）なので、reverseして古→新順で保存
   // ソートは行わない（未特定エントリの位置をユーザーが指定した通りに保持するため）
   history.reverse();
+
+  // 安全対策：経歴を1件も持たない状態で保存しようとしている場合、既存の経歴データが
+  // 何らかの理由（モーダルを開いた時点での読み込み失敗など）で消えてしまっている可能性がある。
+  // 既存データがあったのに空のまま保存されると、それまでの異動経歴が全て消えてしまうため、
+  // 保存前に必ず確認を挟む。
+  if (history.length === 0) {
+    let hadExisting = false;
+    try {
+      const uid = card.dataset.uid || '';
+      const org = card.dataset.org || '';
+      const existing = (uid ? histGet('hist_uid_' + uid) : null)
+                     || histGet('hist_' + (org ? org + '|' + card.dataset.name : card.dataset.name))
+                     || histGet('hist_' + card.dataset.name);
+      if (existing) {
+        const arr = JSON.parse(existing);
+        hadExisting = Array.isArray(arr) && arr.length > 0;
+      }
+    } catch(e) {}
+    // キャッシュに無くても、画面上のタイムライン表示に経歴が見えていれば「既存データあり」とみなす
+    if (!hadExisting) {
+      hadExisting = !!document.getElementById('tl-' + cardId)?.querySelector('.tl-item');
+    }
+    if (hadExisting) {
+      const ok = confirm(
+        '経歴の行が1件もない状態で保存しようとしています。\n' +
+        'このまま保存すると、これまでの異動経歴データが全て消えてしまいます。\n\n' +
+        '本当にこのまま保存してよろしいですか？\n' +
+        '（意図せず空のまま保存しようとしている場合は「キャンセル」を押してください）'
+      );
+      if (!ok) return;
+    }
+  }
+
   const _spn = parseName(card.dataset.name);
   // UIDがあればUID基準で保存（完全に一意）
   const _uid = card.dataset.uid || '';
