@@ -2791,7 +2791,7 @@ function buildSection(officeName, people, sectionId, orgClass) {
   }
 
   const allPeople = [...sorted, ...filteredLocalMembers, ...movedInMembers]
-    .filter((p, idx) => !_deletedIds.includes(_makeCardId(p, idx)))
+    .filter((p, idx) => !_deletedIds.includes(_makeCardId(p, idx)) && !(p.uid && _deletedIds.includes('uid_' + p.uid)))
     .sort(_sortByYearThenRole);
   if (allPeople.length === 0) {
     if (isCompany) {
@@ -6092,6 +6092,7 @@ function confirmDelete() {
   const name = overlay.dataset.name;
   const card = document.querySelector(`[data-card-id="${cardId}"]`);
   if (card) {
+    const uid = card.dataset.uid || '';
     const grid = card.closest('.staff-grid');
     const section = card.closest('.office-section');
     card.remove();
@@ -6110,9 +6111,21 @@ function confirmDelete() {
       localStorage.removeItem('mei_' + name);
     } catch(ex) {}
     // addedMembersから削除（メンバー追加で登録された人の場合）
+    // 経歴の異動により表示上のセクション（grid）と、addedMembers上の実際の保存先セクションが
+    // 食い違っていることがあるため、今表示されているセクションだけでなく addedMembers 全体を
+    // 探して削除する（uidが分かればuidで、無ければ氏名で照合する）
     try {
-      const sectionId = grid ? grid.id.replace('grid-', '') : null;
-      if (sectionId) {
+      const sectionIds = new Set(Object.keys(window._fbAddedMembers || {}));
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('addedMembers_')) sectionIds.add(k.replace('addedMembers_', ''));
+        }
+      } catch(e) {}
+      const gridSectionId = grid ? grid.id.replace('grid-', '') : null;
+      if (gridSectionId) sectionIds.add(gridSectionId);
+
+      sectionIds.forEach(sectionId => {
         const localKey = 'addedMembers_' + sectionId;
         let members = [];
         try { members = JSON.parse(localStorage.getItem(localKey) || '[]'); } catch(e) {}
@@ -6120,7 +6133,8 @@ function confirmDelete() {
         if (members.length === 0 && window._fbAddedMembers && window._fbAddedMembers[sectionId]) {
           members = [...(window._fbAddedMembers[sectionId] || [])];
         }
-        const filtered = members.filter(p => p.name !== name);
+        if (!members.length) return;
+        const filtered = members.filter(p => uid ? (p.uid !== uid) : (p.name !== name));
         if (filtered.length !== members.length) {
           // addedMembersに含まれていた → そこから削除
           if (!window._fbAddedMembers) window._fbAddedMembers = {};
@@ -6130,14 +6144,21 @@ function confirmDelete() {
             window.fbSet('addedMembers/' + window.fbKey(sectionId), filtered.length ? filtered : null);
           }
         }
-      }
+      });
     } catch(ex) {}
-    // Firebaseに削除済みとして記録（cardIdベースで1件だけ消えるように）
+    // Firebaseに削除済みとして記録
+    // cardIdは表示位置（セクション・並び順）から作られる値なので、経歴の異動などで
+    // 表示位置がずれると端末ごとに違うcardIdになり、削除が伝わらないことがある。
+    // uidが分かる場合はuidベースのキーも一緒に記録し、どの端末でも確実に非表示にする。
     try {
-      if (window.fbSet) window.fbSet('deletedCards/' + cardId, true);
+      if (window.fbSet) {
+        window.fbSet('deletedCards/' + cardId, true);
+        if (uid) window.fbSet('deletedCards/uid_' + uid, true);
+      }
       let deleted = [];
       try { deleted = JSON.parse(localStorage.getItem('deletedCards') || '[]'); } catch(e) {}
       if (!deleted.includes(cardId)) deleted.push(cardId);
+      if (uid && !deleted.includes('uid_' + uid)) deleted.push('uid_' + uid);
       localStorage.setItem('deletedCards', JSON.stringify(deleted));
     } catch(ex) {}
   }
