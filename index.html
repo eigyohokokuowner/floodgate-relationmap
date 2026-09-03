@@ -4186,6 +4186,46 @@ function closeAddMemberModal() {
   if (overlay) overlay.classList.remove('open');
 }
 
+// 同姓同名チェック用：既存データ（静的DATA + 追加メンバー）全体から、指定した氏名と
+// 一致する人物を探す（全角/半角スペースの有無・数の違いは無視して比較する）
+function _normalizeNameForCompare(n) {
+  return (n || '').replace(/[\s　]+/g, '');
+}
+function findExistingPeopleByName(fullName) {
+  const target = _normalizeNameForCompare(fullName);
+  if (!target) return [];
+  const results = [];
+  const seen = new Set();
+  const allOrgKeys = ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','tohoku','kyushu','suikiko','sonota','naibu','shisetsu','todofuken','retired'];
+  allOrgKeys.forEach(ok => {
+    const offices = (typeof DATA !== 'undefined' && DATA[ok]) || {};
+    Object.keys(offices).forEach(off => {
+      (offices[off] || []).forEach(p => {
+        if (_normalizeNameForCompare(p.name) === target) {
+          const key = (p.uid || '') + '|' + off;
+          if (seen.has(key)) return;
+          seen.add(key);
+          results.push({ name: p.name, office: off, role: p.current_role || '', dept: p.current_dept || '' });
+        }
+      });
+    });
+  });
+  if (window._fbAddedMembers) {
+    Object.entries(window._fbAddedMembers).forEach(([sid, members]) => {
+      (members || []).forEach(p => {
+        if (_normalizeNameForCompare(p.name) === target) {
+          const key = (p.uid || '') + '|' + sid;
+          if (seen.has(key)) return;
+          seen.add(key);
+          const officeName = (typeof resolveOffice === 'function' && resolveOffice(sid)) || sid;
+          results.push({ name: p.name, office: officeName, role: p.current_role || '', dept: p.current_dept || '' });
+        }
+      });
+    });
+  }
+  return results;
+}
+
 function submitAddMember() {
   const overlay = document.getElementById('memberModalOverlay');
   if (!overlay) return;
@@ -4199,6 +4239,19 @@ function submitAddMember() {
   const orgClass = overlay.dataset.orgClass;
 
   const fullName = mei ? sei + ' ' + mei : sei;
+
+  // 同姓同名チェック：既に登録されている職員がいれば警告し、気付かずに重複登録するのを防ぐ
+  const dup = findExistingPeopleByName(fullName);
+  if (dup.length > 0) {
+    const list = dup.map(d => `・${d.office}／${d.role || d.dept || '(役職未登録)'}`).join('\n');
+    const proceed = confirm(
+      `「${fullName}」という名前は既に登録されています。\n\n${list}\n\n` +
+      `同姓同名の別人として追加しますか？\n` +
+      `（同一人物であれば「キャンセル」を押して、既存カードの「経歴を編集・追記する」から追記してください）`
+    );
+    if (!proceed) return;
+  }
+
   // UIDを生成（一意なID）
   const newUid = 'u' + Math.random().toString(36).slice(2,10).padEnd(8,'0');
 
