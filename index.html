@@ -354,7 +354,7 @@
   .history-editor { display: none; margin-top: 8px; }
   .history-editor.open { display: block; }
   .editor-header-wrap { overflow-x: auto; }
-  .editor-header,.editor-row { display: grid; grid-template-columns: 16px 64px 64px 1.6fr 1.1fr 1.3fr 46px; gap: 6px; margin-bottom: 5px; align-items: center; min-width: 460px; }
+  .editor-header,.editor-row { display: grid; grid-template-columns: 16px 80px 80px 1.5fr 1.1fr 1.3fr 46px; gap: 6px; margin-bottom: 5px; align-items: center; min-width: 500px; }
   .editor-header span { font-size: 9px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
   .editor-row select,.editor-row input { font-size: 12px; font-family: inherit; padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--text); width: 100%; outline: none; }
   .editor-row select:focus,.editor-row input:focus { border-color: var(--accent); }
@@ -2932,7 +2932,7 @@ function buildCard(person, orgClass, sectionId, idx) {
             value="${(()=>{try{const e=profileGet('edu', person.name, person.uid||'');if(e)return JSON.parse(e).dept||'';return '';}catch(e){return ''}})()}">
         </div>
         <div class="editor-header-wrap">
-          <div class="editor-header"><span>着任</span><span>離任</span><span>事務所</span><span>所属課</span><span>役職</span><span></span></div>
+          <div class="editor-header"><span></span><span>着任</span><span>離任</span><span>事務所</span><span>所属課</span><span>役職</span><span></span></div>
           <div class="editor-rows" id="erows-${cardId}"></div>
         </div>
         <div class="editor-actions">
