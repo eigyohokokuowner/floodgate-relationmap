@@ -4004,6 +4004,24 @@ function getFullName(rawName, office, uid) {
   return mei ? sei + '　' + mei : sei;
 }
 
+// リレーションタブ専用：表示名の同姓同名（姓のみ登録）衝突を解消するためのヘルパー。
+// 「名」が未登録のまま姓だけで登録されている人物が複数いる場合、getFullName()の結果が
+// 全員同じ文字列（姓のみ）になってしまい、リレーション図のノード判定・ハイライトが
+// 名前の文字列一致だけで行われている箇所（isRel = relNames.has(n.name) など）で、
+// 本来無関係な同姓の別人まで「関係あり」として一緒にハイライトされてしまう。
+// 　→ 対策：フルネーム化しても他の人物と表示名が重複したままの場合のみ、
+// 　　　所属事務所名を付記して一意化する（名が登録済みの人物には影響しない）。
+function computeRelDisplayName(rawName, office, uid) {
+  const full = getFullName(rawName, office, uid);
+  if (full === rawName && typeof REL_PERSONS !== 'undefined') {
+    const dupCount = REL_PERSONS.filter(x => x.name === rawName).length;
+    if (dupCount > 1) {
+      return full + '（' + (office || '所属不明') + '）';
+    }
+  }
+  return full;
+}
+
 function openNameModal(cardId, familyName, office, uid, e) {
   e && e.stopPropagation();
   requireWriteAuth(() => _openNameModalInner(cardId, familyName, office, uid));
@@ -6450,7 +6468,7 @@ function switchTab(tab) {
     REL_PERSONS.forEach(p => {
       // フルネームをdisplayNameとして使用（同姓の別人を区別）
       if (!p.displayName) {
-        p.displayName = getFullName(p.name, p.office||'', p.uid||'');
+        p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
       }
       // 重複除去はUID/nameで行う（displayNameは変化するためキーに使わない）
       const key = p.uid ? 'uid:' + p.uid : 'name:' + p.name;
@@ -6512,7 +6530,7 @@ function switchTab(tab) {
           REL_PERSONS_DEDUP.length = 0;
           const _seen = new Set();
           REL_PERSONS.forEach(p => {
-            if (!p.displayName) p.displayName = getFullName(p.name, p.office||'', p.uid||'');
+            if (!p.displayName) p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
             const key = p.uid ? 'uid:'+p.uid : 'name:'+(p.displayName||p.name);
             if (!_seen.has(key)) { _seen.add(key); REL_PERSONS_DEDUP.push(p); }
           });
@@ -6736,6 +6754,11 @@ REL_PERSONS_DEDUP.forEach(p => { relPersonMap[p.id] = p; });
 // ════════════════════════════════════════
 // 地域名なしの「本局」を、所属組織から地域名付きに補完するためのマップ
 const ORG_HONKYOKU_LABEL = { chugoku:'中国', shikoku:'四国', kanto:'関東', chubu:'中部', hokkaido:'北海道', hokuriku:'北陸', tohoku:'東北', kyushu:'九州' };
+// 「関係を追加」モーダル等、地域名ラベルが必要な箇所で共通利用する（全org種別に対応）
+function relOrgLabel(o) {
+  return ORG_HONKYOKU_LABEL[o] || (o==='naibu' ? '内部部局' : o==='shisetsu' ? '施設等' : o==='sonota' ? 'その他' :
+    o==='todofuken' ? '都道府県' : o==='suikiko' ? '水機構' : (o || '不明'));
+}
 // 年度コード（H7〜H30, R1〜R8）を連番インデックスに変換／逆変換
 function _yearCodeToIdx(code) {
   let m = /^H(\d+)$/.exec(code);
@@ -7503,7 +7526,7 @@ function renderRelInfo(name) {
   const p = REL_PERSONS_DEDUP.find(x => (x.displayName||x.name) === name || x.name === name);
   // displayNameが未設定の場合は今ここで設定
   if (p && !p.displayName) {
-    p.displayName = getFullName(p.name, p.office||'', p.uid||'');
+    p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
   }
   document.getElementById('relInfoEmpty').style.display = 'none';
   const body = document.getElementById('relInfoBody');
@@ -7641,10 +7664,11 @@ window._relAllPersons = [];
 function _openAddRelModalInner(preA) {
   const overlay = document.getElementById('relModalOverlay');
   window._relAllPersons = _getAllPersons();
-  const orgLabel = o => o==='chugoku'?'中国':o==='shikoku'?'四国':o==='kanto'?'関東':o==='chubu'?'中部':o==='hokkaido'?'北海道':o==='hokuriku'?'北陸':o==='tohoku'?'東北':o==='kyushu'?'九州':o==='naibu'?'内部部局':o==='shisetsu'?'施設等':o==='sonota'?'その他':o==='todofuken'?'都道府県':o;
   const opts = window._relAllPersons.map(p => {
     const fullName = p.displayName || p.name;
-    return `<option value="${fullName}">${fullName}（${orgLabel(p.org)}・${p.office}）</option>`;
+    // 経歴編集等で異動が反映されている場合はそちらを優先し、現在（最新）の事務所名を表示する
+    const curOffice = _getLatestOffice(p, p.org) || p.office;
+    return `<option value="${fullName}">${fullName}（${relOrgLabel(p.org)}・${curOffice}）</option>`;
   }).join('');
   document.getElementById('relSelA').innerHTML = '<option value="">選択してください</option>' + opts;
   // preAまたはrelSelectedをフルネームでセット
@@ -7669,25 +7693,31 @@ function filterRelBList(q) {
   const dropdown = document.getElementById('relSelBDropdown');
   const hiddenInput = document.getElementById('relSelB');
   const all = window._relAllPersons || _getAllPersons();
-  const filtered = q
-    ? all.filter(p => p.name.includes(q) || (p.office||'').includes(q))
+  // 常に「未確定の入力中テキスト」を人物Bの値として保持しておく（社外の人などリストにない名前も入力可）
+  hiddenInput.value = q;
+  const qNorm = normSp(q);
+  const filtered = qNorm
+    ? all.filter(p => {
+        const disp = p.displayName || p.name;
+        return normSp(disp).includes(qNorm) || normSp(p.name).includes(qNorm) || normSp(p.office||'').includes(qNorm);
+      })
     : all;
-  if (filtered.length === 0) {
-    // 入力値をそのまま使う（社外の人など）
-    hiddenInput.value = q;
+  if (!qNorm || filtered.length === 0) {
     dropdown.style.display = 'none';
     return;
   }
-  dropdown.innerHTML = filtered.map(p =>
-    `<div class="rel-b-item" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9"
-      onmousedown="selectRelB('${p.name.replace(/'/g,"\'")}','${(p.name+(p.org==='chugoku'?'（中国・':'（四国・')+(p.office||'')).replace(/'/g,"\'")}')">
-      ${p.name}<span style="font-size:11px;color:var(--muted);margin-left:6px">${p.org==='chugoku'?'中国':'四国'}・${p.office||''}</span>
-    </div>`
-  ).join('');
+  dropdown.innerHTML = filtered.slice(0, 30).map(p => {
+    const disp = (p.displayName || p.name).replace(/'/g, "\\'");
+    const curOffice = _getLatestOffice(p, p.org) || p.office || '';
+    return `<div class="rel-b-item" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9"
+      onmousedown="selectRelB('${disp}')">
+      ${p.displayName || p.name}<span style="font-size:11px;color:var(--muted);margin-left:6px">${relOrgLabel(p.org)}・${curOffice}</span>
+    </div>`;
+  }).join('');
   dropdown.style.display = 'block';
 }
 
-function selectRelB(name, label) {
+function selectRelB(name) {
   document.getElementById('relSelBInput').value = name;
   document.getElementById('relSelB').value = name;
   document.getElementById('relSelBDropdown').style.display = 'none';
