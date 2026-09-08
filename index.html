@@ -4026,11 +4026,19 @@ function computeRelDisplayName(person) {
   const rawName = person.name, office = person.office || '', uid = person.uid || '';
   const full = getFullName(rawName, office, uid);
   if (full === rawName && typeof REL_PERSONS !== 'undefined') {
-    const dupCount = REL_PERSONS.filter(x => x.name === rawName).length;
-    if (dupCount > 1) {
+    // dedupRelPersons()と同じ基準（UID付き正式カードがあればUID無しの孤立データは除外）で
+    // 「実際に生き残る同姓レコード」だけを数える。孤立データがUID付きカードの方に
+    // 統合されて解消済みの衝突には、事務所名の付記はもう不要。
+    const namesWithUid = new Set();
+    REL_PERSONS.forEach(x => { if (x.uid) namesWithUid.add(x.name); });
+    const survivorKeys = new Set();
+    REL_PERSONS.forEach(x => {
+      if (x.name !== rawName) return;
+      if (!x.uid && namesWithUid.has(x.name)) return;
+      survivorKeys.add(x.uid ? 'uid:' + x.uid : 'name:' + x.name);
+    });
+    if (survivorKeys.size > 1) {
       // 区別用に付記する事務所名は、可能な限りFirebase上の現在（最新）の所属を使う。
-      // 同姓の別人ではなく実は同一人物の重複データだった場合、この付記が一致することで
-      // 「本来は同じ人物なのに別レコードとして登録されている」ことにも気付きやすくなる。
       const liveOffice = _getLatestOffice(person, person.org || '') || office;
       return full + '（' + (liveOffice || '所属不明') + '）';
     }
@@ -6479,16 +6487,15 @@ function switchTab(tab) {
     buildPersonList();
     // REL_PERSONS_DEDUPも再構築（UIDがある場合はUID優先で重複除去）
     REL_PERSONS_DEDUP.length = 0;
-    const _seenKeysNew = new Set();
     REL_PERSONS.forEach(p => {
       // フルネームをdisplayNameとして使用（同姓の別人を区別）
       if (!p.displayName) {
         p.displayName = computeRelDisplayName(p);
       }
-      // 重複除去はUID/nameで行う（displayNameは変化するためキーに使わない）
-      const key = p.uid ? 'uid:' + p.uid : 'name:' + p.name;
-      if (!_seenKeysNew.has(key)) { _seenKeysNew.add(key); REL_PERSONS_DEDUP.push(p); }
     });
+    // 重複除去はUID優先。UIDを持たない孤立データは、UID付きの正式カードが
+    // 別にあればそちらを優先して除外する（displayNameは変化するためキーに使わない）
+    dedupRelPersons(REL_PERSONS).forEach(p => REL_PERSONS_DEDUP.push(p));
     // CO_RELSを再生成（関東・addedMembersを含む）
     CO_RELS = buildCoRelations();
     // マップ表示時：外部ノードのみ追加・更新（全リセットしない）
@@ -6543,12 +6550,10 @@ function switchTab(tab) {
           REL_PERSONS.length = 0;
           buildPersonList();
           REL_PERSONS_DEDUP.length = 0;
-          const _seen = new Set();
           REL_PERSONS.forEach(p => {
             if (!p.displayName) p.displayName = computeRelDisplayName(p);
-            const key = p.uid ? 'uid:'+p.uid : 'name:'+(p.displayName||p.name);
-            if (!_seen.has(key)) { _seen.add(key); REL_PERSONS_DEDUP.push(p); }
           });
+          dedupRelPersons(REL_PERSONS).forEach(p => REL_PERSONS_DEDUP.push(p));
           CO_RELS = buildCoRelations();
           relNodes = [];
           initRelNodes();
@@ -6746,16 +6751,33 @@ function buildPersonList() {
     });
   } catch(e) {}
 }
+// REL_PERSONSから重複を除去し、「今Firebaseに存在する名前カード」だけを残す共通ヘルパー。
+// ・UIDを持つレコードはUID単位で重複除去する（これが「現在の名前カード」＝正式データ）。
+// ・UIDを持たないレコードは、同じ姓名でUID付きの正式カードが別に存在する場合、
+// 　異動・再登録・古いセクション残留等で生き残ってしまった孤立データとみなして除外する
+// 　（＝リレーションの有無は、現在Firebaseに存在するその人の名前カードに書かれた
+// 　　経歴だけを見て判定するようにする）。
+// ・UIDを持たないレコード同士（どちらも正式カードが無い）は、従来通り名前で重複除去する。
+function dedupRelPersons(list) {
+  const namesWithUid = new Set();
+  list.forEach(p => { if (p.uid) namesWithUid.add(p.name); });
+  const seenKeys = new Set();
+  const result = [];
+  list.forEach(p => {
+    if (!p.uid && namesWithUid.has(p.name)) return;
+    const key = p.uid ? 'uid:' + p.uid : 'name:' + p.name;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    result.push(p);
+  });
+  return result;
+}
+
 buildPersonList();
 window.buildPersonList = buildPersonList;
 
 // Dedup by uid (if available) or name (prefer chugoku, keep first occurrence)
-const _seenKeys = new Set();
-const REL_PERSONS_DEDUP = REL_PERSONS.filter(p => {
-  const key = p.uid ? 'uid:' + p.uid : 'name:' + p.name;
-  if (_seenKeys.has(key)) return false;
-  _seenKeys.add(key); return true;
-});
+const REL_PERSONS_DEDUP = dedupRelPersons(REL_PERSONS);
 window.REL_PERSONS = REL_PERSONS;
 window.REL_PERSONS_DEDUP = REL_PERSONS_DEDUP;
 // ※ switchTab時に再構築するためArrayとして扱う
