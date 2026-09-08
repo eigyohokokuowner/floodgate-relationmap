@@ -1726,37 +1726,48 @@ const _OFFICE_TO_ORG = {};
   });
 })();
 
-// 人物の最新office（_histCache優先、なければDATA初期history）を返す
-function _getLatestOffice(person, orgKey) {
-  let hist = person.history || [];
+// 人物の「実効的な経歴」を返す共通ヘルパー：
+// UIDがあればUID優先でFirebase同期キャッシュ（_histCache）を参照し、
+// 無ければ「org|name」→「name」の順でフォールバック、それも無ければ
+// DATA由来の初期history（手動追記していない場合の静的スナップショット）を返す。
+// リレーションタブ内で「現在の所属」や「同部署経験」を判定する箇所は、
+// すべてこの関数を経由してFirebaseの最新データを最優先で参照するようにする。
+function getEffectiveHistory(person, orgKey) {
+  let hist = (person && person.history) || [];
   try {
-    const uid = person.uid || '';
+    const uid = person && person.uid || '';
     // uidは一意なキーなので、手動追加メンバーであっても同姓同名の別人の経歴が混ざる心配がない。
     // uidがあれば手動追加かどうかに関わらず最優先で使う。
     if (uid) {
       const saved = histGet('hist_uid_' + uid);
       if (saved) hist = JSON.parse(saved);
-    } else if (person.note !== '手動追加') {
+    } else if (!person || person.note !== '手動追加') {
       // uidを持たない人物のみ、名前ベースでの照合にフォールバックする
       // （手動追加メンバーは名前だけでの照合だと他人の経歴が混入する恐れがあるため対象外のまま）
-      // メモリキャッシュだけでなくlocalStorageもフォールバックで確認する
-      // （UIDを持たない人物の経歴はFirebaseの再同期時にメモリキャッシュへ復元されないため、
-      // 　ここでhistGet()同様にlocalStorageを見ないと、保存した異動が再読み込み後に消えてしまう）
-      let saved = histGet('hist_' + orgKey + '|' + person.name);
-      if (!saved) saved = histGet('hist_' + person.name);
+      let saved = histGet('hist_' + (orgKey||'') + '|' + (person && person.name));
+      if (!saved) saved = histGet('hist_' + (person && person.name));
       if (saved) hist = JSON.parse(saved);
     }
   } catch(e) {}
-  if (!hist || hist.length === 0) return null;
+  return hist || [];
+}
+
+// 年度コード（H7〜H30, R1〜R10）を比較可能な数値に変換し、「現在」在籍中の扱いも考慮した
+// 実効終了年を返す（在籍期間の重なり判定・最新配属判定の両方で共通利用する）
+function _histEffEnd(h) {
   const yrOrd = {};
-  for(let h=7;h<=30;h++) yrOrd['H'+h]=h;
+  for(let hh=7;hh<=30;hh++) yrOrd['H'+hh]=hh;
   for(let r=1;r<=10;r++) yrOrd['R'+r]=100+r;
-  function effEnd(h) {
-    if (h.endYear && h.endYear !== '現在' && h.endYear !== '') return yrOrd[h.endYear] || yrOrd[h.year] || 0;
-    if (h.endYear === '現在') return (yrOrd[h.year] || 0) + 0.5;
-    return yrOrd[h.year] || 0;
-  }
-  const latest = [...hist].sort((a,b) => effEnd(b) - effEnd(a))[0];
+  if (h.endYear && h.endYear !== '現在' && h.endYear !== '') return yrOrd[h.endYear] || yrOrd[h.year] || 0;
+  if (h.endYear === '現在') return (yrOrd[h.year] || 0) + 0.5;
+  return yrOrd[h.year] || 0;
+}
+
+// 人物の最新office（_histCache＝Firebaseの最新データを優先、なければDATA初期history）を返す
+function _getLatestOffice(person, orgKey) {
+  const hist = getEffectiveHistory(person, orgKey);
+  if (!hist || hist.length === 0) return null;
+  const latest = [...hist].sort((a,b) => _histEffEnd(b) - _histEffEnd(a))[0];
   return latest ? latest.office : null;
 }
 
@@ -4011,12 +4022,17 @@ function getFullName(rawName, office, uid) {
 // 本来無関係な同姓の別人まで「関係あり」として一緒にハイライトされてしまう。
 // 　→ 対策：フルネーム化しても他の人物と表示名が重複したままの場合のみ、
 // 　　　所属事務所名を付記して一意化する（名が登録済みの人物には影響しない）。
-function computeRelDisplayName(rawName, office, uid) {
+function computeRelDisplayName(person) {
+  const rawName = person.name, office = person.office || '', uid = person.uid || '';
   const full = getFullName(rawName, office, uid);
   if (full === rawName && typeof REL_PERSONS !== 'undefined') {
     const dupCount = REL_PERSONS.filter(x => x.name === rawName).length;
     if (dupCount > 1) {
-      return full + '（' + (office || '所属不明') + '）';
+      // 区別用に付記する事務所名は、可能な限りFirebase上の現在（最新）の所属を使う。
+      // 同姓の別人ではなく実は同一人物の重複データだった場合、この付記が一致することで
+      // 「本来は同じ人物なのに別レコードとして登録されている」ことにも気付きやすくなる。
+      const liveOffice = _getLatestOffice(person, person.org || '') || office;
+      return full + '（' + (liveOffice || '所属不明') + '）';
     }
   }
   return full;
@@ -6241,15 +6257,14 @@ function resolveOffice(raw) {
 function getCurrentInfoGlobal(person) {
   if (!person) return { office: '', role: '', dept: '' };
   try {
-    const uid = person.uid || '';
-    const saved = uid ? histGet('hist_uid_' + uid) : null;
-    if (saved) {
-      const hist = JSON.parse(saved);
-      if (hist && hist.length > 0) {
-        const yrVal = s => { if (!s) return 0; return s.startsWith('R') ? 100+parseInt(s.slice(1)) : parseInt(s.slice(1))||0; };
-        const latest = [...hist].sort((a,b) => yrVal(b.year) - yrVal(a.year))[0];
-        return { office: resolveOffice(latest.office||''), role: latest.role||'', dept: latest.dept||'' };
-      }
+    // UID優先、UIDが無い人物は「org|name」→「name」の順でFirebaseの保存済み経歴を参照する
+    // （_getLatestOfficeと同じ解決順序。以前はUIDが無いと常にDATAの静的スナップショットに
+    // 　フォールバックしてしまい、経歴編集で異動を追記してもリレーション図の表示が
+    // 　古い所属のままになる不具合があった）
+    const hist = getEffectiveHistory(person, person.org || '');
+    if (hist && hist.length > 0) {
+      const latest = [...hist].sort((a,b) => _histEffEnd(b) - _histEffEnd(a))[0];
+      if (latest) return { office: resolveOffice(latest.office||''), role: latest.role||'', dept: latest.dept||'' };
     }
   } catch(e) {}
   return { office: resolveOffice(person.office||''), role: person.role||'', dept: person.dept||'' };
@@ -6468,7 +6483,7 @@ function switchTab(tab) {
     REL_PERSONS.forEach(p => {
       // フルネームをdisplayNameとして使用（同姓の別人を区別）
       if (!p.displayName) {
-        p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
+        p.displayName = computeRelDisplayName(p);
       }
       // 重複除去はUID/nameで行う（displayNameは変化するためキーに使わない）
       const key = p.uid ? 'uid:' + p.uid : 'name:' + p.name;
@@ -6530,7 +6545,7 @@ function switchTab(tab) {
           REL_PERSONS_DEDUP.length = 0;
           const _seen = new Set();
           REL_PERSONS.forEach(p => {
-            if (!p.displayName) p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
+            if (!p.displayName) p.displayName = computeRelDisplayName(p);
             const key = p.uid ? 'uid:'+p.uid : 'name:'+(p.displayName||p.name);
             if (!_seen.has(key)) { _seen.add(key); REL_PERSONS_DEDUP.push(p); }
           });
@@ -6790,9 +6805,10 @@ function buildCoRelations() {
   REL_PERSONS_DEDUP.forEach(p => {
     const displayName = p.displayName || p.name;
     const s = new Set();
-    // DATAのhistory配列のみを使用（Firebase経歴は参照しない）
-    // 同一事務所・同一年度に在籍した人同士をリレーション対象とする
-    p.history.forEach(h => {
+    // 経歴を編集・追記した場合はFirebaseの最新データを優先し、無ければDATAの初期historyを使う
+    // （同一事務所・同一年度に在籍した人同士をリレーション対象とする）
+    const effHist = getEffectiveHistory(p, p.org);
+    effHist.forEach(h => {
       if (h.year && h.year !== '未特定' && h.year !== '辞任' && h.office && !_exclude.includes(h.office)) {
         // 地域名なしの「本局」は所属組織から地域名を補って地域単位で判定する
         let office = h.office;
@@ -7526,7 +7542,7 @@ function renderRelInfo(name) {
   const p = REL_PERSONS_DEDUP.find(x => (x.displayName||x.name) === name || x.name === name);
   // displayNameが未設定の場合は今ここで設定
   if (p && !p.displayName) {
-    p.displayName = computeRelDisplayName(p.name, p.office||'', p.uid||'');
+    p.displayName = computeRelDisplayName(p);
   }
   document.getElementById('relInfoEmpty').style.display = 'none';
   const body = document.getElementById('relInfoBody');
