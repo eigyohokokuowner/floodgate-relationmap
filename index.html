@@ -7762,7 +7762,8 @@ function renderRelInfo(name) {
   };
 
   const allRels = getRelations(name);
-  const manualOnly = allRels.filter(r=>r.type==='manual');
+  // 手動登録＋同部署の両方を持つ「複合関係」は下のmixedにのみ出す（ここでは除外して重複表示を防ぐ）
+  const manualOnly = allRels.filter(r=>r.type==='manual' && !r.tags.some(t=>t.type==='co'));
   const coOnly = allRels.filter(r=>r.type==='co');
   const mixed = allRels.filter(r=>r.tags.some(t=>t.type==='manual') && r.tags.some(t=>t.type==='co'));
 
