@@ -7186,7 +7186,8 @@ function syncNavCounts() {
     const isTohoku = sec.classList.contains('tohoku-section');
     const isKyushu = sec.classList.contains('kyushu-section');
     const isKinki = sec.classList.contains('kinki-section');
-    const alwaysVisible = isKanto || isNaibu || isShinsetsu || isHokkaido || isHokuriku || isSonota || isTohoku || isKyushu || isKinki;
+    const isChubu = sec.classList.contains('chubu-section');
+    const alwaysVisible = isKanto || isNaibu || isShinsetsu || isHokkaido || isHokuriku || isSonota || isTohoku || isKyushu || isKinki || isChubu;
     // 検索中かどうか判定
     const _searchQ = (document.getElementById('searchInput')?.value || '').trim();
     if (alwaysVisible && !_searchQ) sec.style.display = '';
