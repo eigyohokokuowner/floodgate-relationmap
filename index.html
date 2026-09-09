@@ -887,71 +887,113 @@
   fbListen('education', data => {
     if (!data) return;
     if (!window._histCache) window._histCache = {};
+    const saved = window._mySavedKeys || new Set();
+    let hasExternalChange = false;
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'edu_' + key : 'edu_' + key.replace(/_/g, ' ');
-        window._histCache[lsKey] = JSON.stringify(val);
+        const newJson = JSON.stringify(val);
+        if (window._histCache[lsKey] !== newJson) {
+          window._histCache[lsKey] = newJson;
+          if (!saved.has(key)) hasExternalChange = true;
+        }
       } catch(e) {}
     });
-    _tryRebuildContent();
+    // 自分が直前に保存した内容のエコーだけであれば、そのカードは保存時点で既に
+    // 更新済みなので、全職員分を作り直す重い再描画は行わない
+    if (hasExternalChange) _tryRebuildContent();
   });
 
   // Listen: memo updates
   fbListen('memos', data => {
     if (!data) return;
     if (!window._histCache) window._histCache = {};
+    const saved = window._mySavedKeys || new Set();
+    let hasExternalChange = false;
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'memo_' + key : 'memo_' + key.replace(/_/g, ' ');
-        window._histCache[lsKey] = val;
+        if (window._histCache[lsKey] !== val) {
+          window._histCache[lsKey] = val;
+          if (!saved.has(key)) hasExternalChange = true;
+        }
       } catch(e) {}
     });
-    _tryRebuildContent();
+    if (hasExternalChange) _tryRebuildContent();
   });
 
   // Listen: birthYear updates
   fbListen('birthYears', data => {
     if (!data) return;
     if (!window._histCache) window._histCache = {};
+    const saved = window._mySavedKeys || new Set();
+    let hasExternalChange = false;
     Object.entries(data).forEach(([key, val]) => {
       try {
         const lsKey = key.startsWith('uid_') ? 'birth_' + key : 'birth_' + key.replace(/_/g, ' ');
-        window._histCache[lsKey] = String(val);
+        const newVal = String(val);
+        if (window._histCache[lsKey] !== newVal) {
+          window._histCache[lsKey] = newVal;
+          if (!saved.has(key)) hasExternalChange = true;
+        }
       } catch(e) {}
     });
-    _tryRebuildContent();
+    if (hasExternalChange) _tryRebuildContent();
   });
 
   // Listen: history updates (realtime sync)
   // Firebaseのみを正として参照するため、メモリキャッシュのみ更新する（localStorageへは書かない）
   window._histSyncDone = false;
+  // 初回同期（ページ読み込み直後の一括反映）だけは従来通り全体を作り直す。
+  // 2回目以降（誰かが経歴を保存した等）は、変更があった本人のカードだけをその場で更新し、
+  // 「保存のたびに1194人全員のカードを作り直す」重い処理を避ける。
+  window._histInitialSyncApplied = false;
   fbListen('histories', data => {
-    if (!data) { window._histSyncDone = true; _tryRebuildContent(); return; }
+    if (!data) {
+      window._histSyncDone = true;
+      if (!window._histInitialSyncApplied) { window._histInitialSyncApplied = true; _tryRebuildContent(); }
+      return;
+    }
     if (!window._histCache) window._histCache = {};
+    const isFirstSync = !window._histInitialSyncApplied;
+    const changedKeys = [];
     Object.entries(data).forEach(([key, val]) => {
       try {
-        // 同一セッション内で自分が直前に保存したキーは上書きしない（競合防止）
+        // 同一セッション内で自分が直前に保存したキーは上書きしない（競合防止）。
+        // 自分の保存はsaveHistory()内で既にそのカードのDOMへ直接反映済みなので、
+        // ここで改めて反映する必要はない。
         const saved = window._mySavedKeys || new Set();
         if (saved.has(key)) return;
-        // UID形式キー（uid_で始まる）はFirebaseのデータでメモリキャッシュを更新する
-        if (key.startsWith('uid_')) {
-          window._histCache['hist_' + key] = JSON.stringify(val);
-          return;
+        // UID形式キー（uid_で始まる）／現行形式のキー（事務所グループ|氏名。パイプは
+        // Firebaseキーとして無害な文字なのでエスケープされない）のみを対象とする
+        // （旧形式のnameのみキーはUID移行済みのため対象外）
+        if (key.startsWith('uid_') || key.includes('|')) {
+          const cacheKey = 'hist_' + key;
+          const newJson = JSON.stringify(val);
+          if (window._histCache[cacheKey] !== newJson) {
+            window._histCache[cacheKey] = newJson;
+            changedKeys.push(key);
+          }
         }
-        // 現行形式のキー（事務所グループ|氏名。パイプはFirebaseキーとして無害な文字なのでエスケープされない）も
-        // 同様に反映する。ここを反映しないと、UIDを持たない職員の経歴更新（異動など）が、保存した本人の
-        // ブラウザ以外（別端末・別ユーザー・再読み込み後など）ではいつまでも古いまま表示され続けてしまう。
-        // ※スペースがアンダースコアに置き換えられていた本当の旧形式（パイプを含まないキー）は対象外のまま。
-        if (key.includes('|')) {
-          window._histCache['hist_' + key] = JSON.stringify(val);
-          return;
-        }
-        // 旧形式キー（nameのみ）は対象外（UID移行済みのため不要）
       } catch(e) {}
     });
-    // 初回同期完了フラグを立て、両リスナー揃ったら再描画
     window._histSyncDone = true;
-    _tryRebuildContent();
+
+    if (isFirstSync) {
+      // 初回同期時は、大量の経歴データが一斉に届くため、従来通り一度だけ全体を作り直す
+      window._histInitialSyncApplied = true;
+      _tryRebuildContent();
+      return;
+    }
+
+    // 2回目以降：変更があった本人のカードだけをその場で更新する
+    // （全職員のカードを作り直す_tryRebuildContent()は呼ばない）
+    changedKeys.forEach(key => {
+      try {
+        const hist = JSON.parse(window._histCache['hist_' + key] || '[]');
+        _findCardsForHistKey(key).forEach(card => applyHistoryToCardDOM(card, hist, { scrollOnMove: false, flashSaved: false }));
+      } catch(e) {}
+    });
   });
 
   // Listen: mei (first names)
@@ -3397,6 +3439,22 @@ function saveHistory(cardId,e) {
   const tl=document.getElementById('tl-'+cardId);
   if(tl) tl.innerHTML=renderTimeline(history);
 
+  applyHistoryToCardDOM(card, history);
+}
+
+// 1人分の経歴データをその人物のカードDOMだけに反映する共通処理。
+// saveHistory()（自分の保存）と、historiesリスナー（他端末からの更新を受信した時）の
+// 両方から呼ばれる。これにより「保存のたびに全職員のカードを作り直す」必要がなくなり、
+// 変更があった本人のカードだけを更新できる。
+// opts.scrollOnMove: 事務所が変わってカードを移動した際に画面をスクロールするか（自分の保存時のみtrue推奨）
+// opts.flashSaved: 「✓ 保存しました」を表示するか（自分の保存時のみtrue推奨）
+function applyHistoryToCardDOM(card, history, opts) {
+  if (!card) return;
+  opts = opts || {};
+  const scrollOnMove = opts.scrollOnMove !== false;
+  const flashSaved = opts.flashSaved !== false;
+  const cardId = card.dataset.cardId;
+
   // Update card header using latest entry's effective display year
   if (history.length > 0) {
     const yrOrd2={};
@@ -3450,7 +3508,6 @@ function saveHistory(cardId,e) {
     const currentGrid = card.closest('.staff-grid');
     const currentSection = card.closest('.office-section');
     const currentOfficeName = currentSection?.querySelector('.office-name')?.textContent;
-    console.log('[MOVE] latestEntry:', latestEntry, 'newOffice:', newOffice, 'currentOffice:', currentOfficeName);
 
     if (newOffice && currentOfficeName && newOffice !== currentOfficeName) {
       // Find target section by office name
@@ -3484,18 +3541,40 @@ function saveHistory(cardId,e) {
           newCount.textContent = n + '名';
         }
         targetSection.classList.remove('collapsed');
-        setTimeout(() => card.scrollIntoView({behavior:'smooth', block:'center'}), 100);
+        if (scrollOnMove) setTimeout(() => card.scrollIntoView({behavior:'smooth', block:'center'}), 100);
       }
     }
     } // end if validEntries
   }
 
-  const msg=document.getElementById('savemsg-'+cardId);
-  if(msg) { msg.classList.add('show'); setTimeout(()=>msg.classList.remove('show'),2000); }
+  if (flashSaved) {
+    const msg=document.getElementById('savemsg-'+cardId);
+    if(msg) { msg.classList.add('show'); setTimeout(()=>msg.classList.remove('show'),2000); }
+  }
 
   // 辞任フラグをカードのdata属性に記録（histGetが使えない環境でも退職セクションで検出できるよう）
   const _retiredFlag = history.some(h => h.year === '辞任');
-  if (card) card.dataset.retired = _retiredFlag ? '1' : '';
+  card.dataset.retired = _retiredFlag ? '1' : '';
+}
+
+// historiesのFirebaseキー（'uid_XXXX'、または「orgクラス|氏名」、稀に氏名のみ）から、
+// 対応するカードDOM要素を探す。他端末での経歴保存を、そのカードだけに反映するために使う
+// （＝全職員のカードを作り直さずに済む）。
+function _findCardsForHistKey(key) {
+  try {
+    if (key.startsWith('uid_')) {
+      const uid = key.slice(4);
+      if (!uid) return [];
+      return Array.from(document.querySelectorAll('.staff-card[data-uid="' + CSS.escape(uid) + '"]'));
+    }
+    const pipeIdx = key.indexOf('|');
+    if (pipeIdx !== -1) {
+      const org = key.slice(0, pipeIdx);
+      const name = key.slice(pipeIdx + 1);
+      return Array.from(document.querySelectorAll('.staff-card[data-org="' + CSS.escape(org) + '"][data-name="' + CSS.escape(name) + '"]'));
+    }
+    return Array.from(document.querySelectorAll('.staff-card[data-name="' + CSS.escape(key) + '"]'));
+  } catch(e) { return []; }
 }
 
 // ════════════════════════════════════════
