@@ -1207,6 +1207,7 @@ function _deterministicUid(seed) {
       <option value="kyushu">🏢 九州地整</option>
       <option value="suikiko">💧 水資源機構</option>
       <option value="todofuken">🏛️ 都道府県（出向者）</option>
+      <option value="kaisha" style="color:#059669;">🏢 会社関係</option>
       <option value="retired" style="color:#7f1d1d;font-weight:700;">🚪 退職</option>
     </select>
   </div>
@@ -1226,6 +1227,7 @@ function _deterministicUid(seed) {
         <option value="kyushu">🏢 九州地整</option>
         <option value="suikiko">💧 水資源機構</option>
         <option value="todofuken">🏛️ 都道府県（出向者）</option>
+        <option value="kaisha" style="color:#059669;">🏢 会社関係</option>
         <option value="retired" style="color:#7f1d1d;font-weight:700;">🚪 退職</option>
       </select>
     </div>
@@ -1306,6 +1308,12 @@ function _deterministicUid(seed) {
         <span>都道府県（出向者）</span><span class="org-toggle">▾</span>
       </div>
       <div class="org-body" id="nav-todofuken"></div>
+    </div>
+    <div class="org-group kaisha" id="org-kaisha" style="display:none">
+      <div class="org-group-header" onclick="toggleOrg('org-kaisha')" style="background:#059669;">
+        <span>会社関係</span><span class="org-toggle">▾</span>
+      </div>
+      <div class="org-body" id="nav-kaisha"></div>
     </div>
     <div class="org-group retired" id="org-retired" style="display:none">
       <div class="org-group-header" onclick="toggleOrg('org-retired')" style="background:#7f1d1d;">
@@ -1619,7 +1627,7 @@ const YEAR_OPTIONS_END = genYearOptions(true);
 
 function toggleOrg(id) { document.getElementById(id).classList.toggle('collapsed'); }
 function switchOrg(org) {
-  ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko','todofuken','naibu','shisetsu','retired'].forEach(o => {
+  ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko','todofuken','naibu','shisetsu','kaisha','retired'].forEach(o => {
     const grp = document.getElementById('org-'+o);
     if (grp) grp.style.display = o===org ? '' : 'none';
   });
@@ -1641,7 +1649,7 @@ function switchOrg(org) {
     // 退職セクションを隠し、通常セクションを戻す
     if (retiredSec) retiredSec.style.display = 'none';
     // 選択したorgのセクション・dividerのみ表示、他は非表示
-    const allOrgs = ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko','todofuken','naibu','shisetsu'];
+    const allOrgs = ['chugoku','shikoku','kanto','chubu','hokkaido','hokuriku','sonota','tohoku','kyushu','suikiko','todofuken','naibu','shisetsu','kaisha'];
     document.querySelectorAll('#content > *').forEach(el => {
       if (el.classList.contains('retired-section')) return;
       // このelがどのorgに属するか判定
@@ -1976,12 +1984,20 @@ function buildContent() {
   });
 
   // 会社関係セクションを最後に追加
+  // ※ 左上プルダウンの「会社関係」タブから独立して閲覧・登録できるよう、
+  // 　表示の出し分けに使うCSSクラスだけを"kaisha"に付け替える。
+  // 　内部のデータ参照キー（sectionId='chugoku-20', orgClass='chugoku'）はあえて変更しない。
+  // 　これにより、既に保存済みの経歴・備考・氏名などのFirebaseデータをそのまま
+  // 　引き継げる（キーを変えるとデータが迷子になってしまうため）。
   const dc2 = document.createElement('div');
-  dc2.className = 'org-divider chugoku-div';
+  dc2.className = 'org-divider kaisha-div';
   dc2.style.marginTop = '28px';
   dc2.innerHTML = '<div class="org-divider-label" style="color:#059669">会社関係</div><div class="org-divider-line" style="background:#059669"></div>';
   content.appendChild(dc2);
-  content.appendChild(buildSection('会社関係', DATA.chugoku['会社関係']||[], 'chugoku-20', 'chugoku'));
+  const _kaishaSec = buildSection('会社関係', DATA.chugoku['会社関係']||[], 'chugoku-20', 'chugoku');
+  _kaishaSec.classList.remove('chugoku-section');
+  _kaishaSec.classList.add('kaisha-section');
+  content.appendChild(_kaishaSec);
 
   updateAllOfficeCaseCounts();
 }
@@ -4038,9 +4054,13 @@ function setupSearch() {
     document.querySelectorAll('.office-section').forEach(sec=>{
       if(!q){sec.style.display='';return;}
       const grid=sec.querySelector('.staff-grid');
-      // 会社関係は検索でも常時表示
+      // 会社関係は検索でも常時表示（ただし会社関係タブを見ている時のみ。他のタブでは
+      // switchOrgでの非表示状態を維持する）
       const _secName = sec.querySelector('.office-name')?.textContent?.trim();
-      if (_secName === '会社関係') { sec.style.display=''; return; }
+      if (_secName === '会社関係') {
+        sec.style.display = (document.getElementById('orgSelect')?.value === 'kaisha') ? '' : 'none';
+        return;
+      }
       // 該当メンバーがいない事務所は非表示
       sec.style.display=(!grid||grid.querySelectorAll('.staff-card:not(.hidden)').length)?'':'none';
     });
@@ -4871,6 +4891,24 @@ buildNav(KYUSHU_ORDER,'nav-kyushu','kyushu','kyushu');
 buildNav(SUIKIKO_ORDER,'nav-suikiko','suikiko','suikiko');
 buildNav(TODOFUKEN_ORDER,'nav-todofuken','todofuken','todofuken');
 buildNav(SHISETSU_ORDER,'nav-shisetsu','shisetsu','shisetsu');
+
+// 会社関係タブのサイドバー内訳（項目は1つのみ。実データのsectionIdは従来通りchugoku-20を使う）
+(function buildKaishaNav() {
+  const nav = document.getElementById('nav-kaisha');
+  if (!nav) return;
+  const item = document.createElement('div');
+  item.className = 'nav-item';
+  item.dataset.idx = 'chugoku-20';
+  item.dataset.navName = '会社関係';
+  const count = ((window._fbAddedMembers && window._fbAddedMembers['chugoku-20']) || DATA.chugoku['会社関係'] || []).length;
+  item.innerHTML = `<span class="nav-name">会社関係</span><span class="nav-count">${count}</span>`;
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-main-item,.nav-item').forEach(x=>x.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('chugoku-20')?.scrollIntoView({behavior:'smooth',block:'start'});
+  });
+  nav.appendChild(item);
+})();
 // ════════════════════════════════════════
 //  関係工事リストデータ（工事マスタ：工番で検索）
 // ════════════════════════════════════════
@@ -7087,9 +7125,20 @@ function syncNavCounts() {
     const officeName = sec.querySelector('.office-name')?.textContent?.trim();
     const grid = sec.querySelector('.staff-grid');
     const count = grid ? grid.querySelectorAll('.staff-card:not(.hidden)').length : 0;
-    // 会社関係・関東セクションは常時表示
+    // 会社関係セクションは専用の「会社関係」タブ選択時のみ表示する
+    // （常時表示にすると、他のタブを見ている間もswitchOrgでの非表示状態が
+    // 　このタイミングで上書きされて出てきてしまうため）
     if (officeName === '会社関係') {
-      sec.style.display = '';
+      const isKaishaTab = document.getElementById('orgSelect')?.value === 'kaisha';
+      sec.style.display = isKaishaTab ? '' : 'none';
+      const officeCountEl = sec.querySelector('.office-count');
+      if (officeCountEl) officeCountEl.textContent = count > 0 ? count + '名' : '—';
+      document.querySelectorAll('[data-nav-name]').forEach(navItem => {
+        if (navItem.dataset.navName === '会社関係') {
+          const countEl = navItem.querySelector('.nav-count');
+          if (countEl) countEl.textContent = count;
+        }
+      });
       return;
     }
     const isKanto = sec.classList.contains('kanto-section');
