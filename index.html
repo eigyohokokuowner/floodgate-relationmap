@@ -5704,13 +5704,21 @@ function goToKouji(personName, e) {
 
 // Firebase起動時に工事データを同期
 // ※ ログイン画面表示中はまだ使わないデータなので、認証後（_startAppWhenReadyから）に呼び出す。
-// 　特にprojectListInit()はPROJECT_LIST_MASTER_DATA（数千件）を同期的に処理するため、
-// 　ここが無条件に実行されているとログイン中の「応答していません」のもう一つの原因になる。
+// 　うち、事務所コード関連（officeCode系）は職員録タブのバッジ表示に必要なのでここで即実行する。
+// 　一方、工事マスタ/業務案件（数千件規模）は関係工事・業務案件・工事案件・発注実績タブを
+// 　実際に開くまで使わないデータなので、switchTab側で初回アクセス時に遅延実行する
+// 　（ここで無条件に実行すると、ログイン直後にまとまった重い処理が走ってしまうため）。
 function _initHeavyDataSystems() {
-  koujiSyncFromFirebase();
-  koujiInitScoreAwardStatusListener();
   officeCodeRefreshAllBadges();
   officeCodeSyncFromFirebase();
+}
+
+window._caseDataSystemsLoaded = false;
+function _ensureCaseDataSystemsLoaded() {
+  if (window._caseDataSystemsLoaded) return;
+  window._caseDataSystemsLoaded = true;
+  koujiSyncFromFirebase();
+  koujiInitScoreAwardStatusListener();
   projectListInit();
   projectUpdateDbCount();
   projectListSyncFromFirebase();
@@ -5908,7 +5916,13 @@ window.deleteFgUser = async function(id) {
 function updateMemberCount() {
   const badge = document.getElementById('memberCountBadge');
   if (!badge) return;
-  badge.textContent = (typeof REL_PERSONS_DEDUP !== 'undefined' ? REL_PERSONS_DEDUP.length : 0) + '名登録';
+  // 実際に画面上に描画されているカード数を数える（退職者を除く）。
+  // 以前はREL_PERSONS_DEDUP.length（リレーションタブ用に別途集計される値）を
+  // 表示していたが、これは職員録の描画（buildContent）とは別のタイミングで
+  // 再集計されるため、addedMembersの反映タイミング次第で実際に表示されている
+  // カード数とズレてしまうことがあった。
+  const count = document.querySelectorAll('.staff-card:not([data-retired="1"])').length;
+  badge.textContent = count + '名登録';
 }
 
 function _initApp() {
@@ -6654,6 +6668,9 @@ function updateBottomNav(tab) {
 }
 
 function switchTab(tab) {
+  if (tab === 'kouji' || tab === 'projects' || tab === 'gyomu' || tab === 'anken') {
+    _ensureCaseDataSystemsLoaded();
+  }
   if (tab === 'map') {
     // マップ表示時：addedMembersを含めてREL_PERSONSを再構築
     REL_PERSONS.length = 0;
