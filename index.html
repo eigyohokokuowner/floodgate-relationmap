@@ -5926,17 +5926,14 @@ function updateMemberCount() {
 }
 
 function _initApp() {
+  // ※以前はここでbuildContent()を呼んだ直後、_fbAddedMembersが既に届いていれば
+  // 　innerHTML=''でクリアしてもう一度buildContent()を呼び直しており、
+  // 　1000人超の職員録を毎回2回連続で作り直していた（ログイン直後の固まりの主因の一つ）。
+  // 　_initApp()はログイン成功後に呼ばれるため、その頃には_fbAddedMembersは
+  // 　ほぼ確実に届いており、1回のbuildContent()で最新データを反映できる。
   buildContent();
   setTimeout(updateMemberCount, 50);
-
-  // buildContent完了後、既にFirebaseのaddedMembersが届いていれば再描画
-  if (window._fbAddedMembers && Object.keys(window._fbAddedMembers).length > 0) {
-    const c = document.getElementById('content');
-    if (c) c.innerHTML = '';
-    buildContent();
-    setTimeout(updateMemberCount, 50);
-    setTimeout(() => { syncNavCounts && syncNavCounts(); hideRetiredCards && hideRetiredCards(); }, 150);
-  }
+  setTimeout(() => { syncNavCounts && syncNavCounts(); hideRetiredCards && hideRetiredCards(); }, 150);
 
   // 起動時はdropdownのデフォルト(naibu)に合わせてコンテンツも切り替え
   setTimeout(() => { switchOrg('naibu'); }, 200);
