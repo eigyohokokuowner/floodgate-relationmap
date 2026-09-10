@@ -855,7 +855,12 @@
   // Firebaseデータ受信後の再描画
   window._firebaseRebuildDone = false;
   window._rebuildTimer = null;
+  window._appAuthed = false;
   function _doRebuild() {
+    // ログイン画面表示中（未認証）は、まだ見えない職員録の再構築をしない。
+    // Firebaseの初回同期はログイン操作と無関係に届くため、ここで止めないと
+    // ログイン中に重いbuildContent()が走ってページが固まってしまう。
+    if (!window._appAuthed) { window._rebuildPending = true; return; }
     if (window._firebaseRebuildDone) return;
     window._firebaseRebuildDone = true;
     // REL_PERSONSとREL_PERSONS_DEDUPをaddedMembers込みで再構築
@@ -5698,15 +5703,20 @@ function goToKouji(personName, e) {
 }
 
 // Firebase起動時に工事データを同期
-koujiSyncFromFirebase();
-koujiInitScoreAwardStatusListener();
-officeCodeRefreshAllBadges();
-officeCodeSyncFromFirebase();
-projectListInit();
-projectUpdateDbCount();
-projectListSyncFromFirebase();
-gyomuSyncFromFirebase();
-ankenSyncFromFirebase();
+// ※ ログイン画面表示中はまだ使わないデータなので、認証後（_startAppWhenReadyから）に呼び出す。
+// 　特にprojectListInit()はPROJECT_LIST_MASTER_DATA（数千件）を同期的に処理するため、
+// 　ここが無条件に実行されているとログイン中の「応答していません」のもう一つの原因になる。
+function _initHeavyDataSystems() {
+  koujiSyncFromFirebase();
+  koujiInitScoreAwardStatusListener();
+  officeCodeRefreshAllBadges();
+  officeCodeSyncFromFirebase();
+  projectListInit();
+  projectUpdateDbCount();
+  projectListSyncFromFirebase();
+  gyomuSyncFromFirebase();
+  ankenSyncFromFirebase();
+}
 
 
 
@@ -5756,6 +5766,8 @@ async function gateLogin() {
         document.getElementById('authGate').style.display = 'none';
         document.documentElement.style.overflow = '';
         applyPermissions();
+        window._appAuthed = true;
+        _startAppWhenReady();
       } else {
         errEl.textContent = 'IDまたはパスワードが正しくありません';
         errEl.style.display = 'block';
@@ -5885,8 +5897,11 @@ window.deleteFgUser = async function(id) {
     const gate = document.getElementById('authGate');
     if (gate) gate.style.display = 'none';
     setTimeout(applyPermissions, 100);
+    window._appAuthed = true;
+    _startAppWhenReady();
   } else {
     document.documentElement.style.overflow = 'hidden';
+    // 未ログインの間はbuildContent()を呼ばない（ログイン成功後にgateLogin()側から呼ぶ）
   }
 })();
 
@@ -5913,10 +5928,16 @@ function _initApp() {
   setTimeout(() => { switchOrg('naibu'); }, 200);
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _initApp);
-} else {
-  _initApp();
+// ログイン画面が表示されている間は、まだ見えない職員録を丸ごと構築する重い処理
+// （buildContent()）を走らせない。認証が確認できた後（セッション復帰 or ログイン成功）に
+// 呼び出す。これにより、ログイン中にページが「応答していません」になる主因を避ける。
+function _startAppWhenReady() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { _initApp(); _initHeavyDataSystems(); }, { once: true });
+  } else {
+    _initApp();
+    _initHeavyDataSystems();
+  }
 }
 
 // 退職セクションを構築（経歴に「辞任」が含まれる人物を動的収集）
