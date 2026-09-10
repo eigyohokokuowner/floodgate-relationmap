@@ -1852,30 +1852,35 @@ function _getLatestOffice(person, orgKey) {
 // DATAを書き換えず、指定セクションに表示すべき人物を返す
 // ・元々このセクションにいて、最新officeがここ or 移動先不明の人
 // ・他セクションからこのセクションに最新officeが移ってきた人
-function getPeopleForSection(orgKey, officeName) {
-  const result = [];
+// DATAの全静的人物を1回だけ走査し、「現在（最新）の事務所名」ごとにグループ化しておく。
+// buildContent()の先頭で1回だけ呼ぶ。以前はgetPeopleForSection()の中でこの走査を
+// 事務所1つごとに（＝事務所数だけ何度も）繰り返しており、_movedInIndexと同様に
+// 「事務所数 × 静的人物総数」のオーダーになっていた。
+function _buildStaticPeopleIndex() {
+  const index = {};
   const allOrgKeys = ['chugoku','shikoku','kanto','chubu','kinki','hokkaido','hokuriku','tohoku','kyushu','suikiko','sonota','naibu','shisetsu','todofuken'];
-  const seen = new Set();
   const orderMap = { chugoku: CHUGOKU_ORDER, shikoku: SHIKOKU_ORDER, kanto: KANTO_ORDER, chubu: CHUBU_ORDER, kinki: KINKI_ORDER,
     hokkaido: HOKKAIDO_ORDER, hokuriku: HOKURIKU_ORDER, tohoku: TOHOKU_ORDER,
     kyushu: KYUSHU_ORDER, sonota: SONOTA_ORDER, naibu: NAIBU_ORDER, shisetsu: SHISETSU_ORDER, suikiko: SUIKIKO_ORDER, todofuken: TODOFUKEN_ORDER };
-
-  // DATAの人物を走査（最新officeで振り分け）
+  const seen = new Set();
   allOrgKeys.forEach(ok => {
     (orderMap[ok] || []).forEach(off => {
       (DATA[ok][off] || []).forEach(person => {
         const key = person.uid || person.name;
         if (seen.has(key)) return;
+        seen.add(key);
         const latestOff = _getLatestOffice(person, ok);
-        if (latestOff === officeName ||
-            (!latestOff && ok === orgKey && off === officeName)) {
-          seen.add(key);
-          result.push(person);
-        }
+        const targetOffice = latestOff || off; // 未解決の場合は元々の静的データ上の事務所に留める
+        if (!index[targetOffice]) index[targetOffice] = [];
+        index[targetOffice].push(person);
       });
     });
   });
+  return index;
+}
 
+function getPeopleForSection(orgKey, officeName) {
+  const result = ((window._staticPeopleIndex && window._staticPeopleIndex[officeName]) || []).slice();
   result._fromGetPeople = true;
   return result;
 }
@@ -1884,6 +1889,9 @@ function buildContent() {
   const content = document.getElementById('content');
   if (!content) return;
   const frag = document.createDocumentFragment();
+  // 事務所ごとに全addedMembersを再走査しなくて済むよう、先に1回だけ計算しておく
+  window._movedInIndex = _buildMovedInIndex();
+  window._staticPeopleIndex = _buildStaticPeopleIndex();
   const dn = document.createElement('div');
   dn.className = 'org-divider naibu-div';
   dn.innerHTML = '<div class="org-divider-label" style="background:#7c3aed">内部部局</div><div class="org-divider-line" style="background:#7c3aed"></div>';
@@ -2763,6 +2771,47 @@ function ankenOpenLightbox(id, startIndex) {
 }
 
 
+// addedMembersのsectionId（例: 'kinki-3'）から所属orgクラスを判定する共通ヘルパー
+function _orgClassFromSectionId(sectionId) {
+  return sectionId.startsWith('naibu') ? 'naibu' :
+        sectionId.startsWith('shisetsu') ? 'shisetsu' :
+        sectionId.startsWith('kanto') ? 'kanto' :
+        sectionId.startsWith('chubu') ? 'chubu' :
+        sectionId.startsWith('kinki') ? 'kinki' :
+        sectionId.startsWith('hokkaido') ? 'hokkaido' :
+        sectionId.startsWith('hokuriku') ? 'hokuriku' :
+        sectionId.startsWith('tohoku') ? 'tohoku' :
+        sectionId.startsWith('kyushu') ? 'kyushu' :
+        sectionId.startsWith('suikiko') ? 'suikiko' :
+        sectionId.startsWith('sonota') ? 'sonota' :
+        sectionId.startsWith('todofuken') ? 'todofuken' :
+        sectionId.startsWith('shikoku') ? 'shikoku' : 'chugoku';
+}
+
+// 全addedMembersを1回だけ走査し、「現在（最新）所属している事務所名」ごとに
+// 人物をグループ化しておく（異動により元のセクションとは別の事務所に表示すべき人を
+// 判定するためのインデックス）。
+// buildContent()の先頭で1回だけ呼ぶ。以前はbuildSection()の中でこの走査を
+// 事務所1つごとに（＝事務所数だけ何度も）繰り返しており、
+// 「事務所数 × 追加メンバー総数」のオーダーで_getLatestOffice()が呼ばれていた
+// （これがログイン直後の職員録表示が遅かった主な原因の一つ）。
+// 1回の走査で済ませることで「追加メンバー総数」のオーダーに落とす。
+function _buildMovedInIndex() {
+  const index = {};
+  if (!window._fbAddedMembers) return index;
+  Object.entries(window._fbAddedMembers).forEach(([sid, members]) => {
+    const srcOrgClass = _orgClassFromSectionId(sid);
+    (members || []).forEach(p => {
+      let latest = null;
+      try { latest = _getLatestOffice(p, srcOrgClass); } catch(e) {}
+      if (!latest) return;
+      if (!index[latest]) index[latest] = [];
+      index[latest].push({ person: p, fromSectionId: sid });
+    });
+  });
+  return index;
+}
+
 function buildSection(officeName, people, sectionId, orgClass) {
   const isMain = officeName==='本局（中国）' || officeName==='本局（四国）';
   const isCompany = officeName === '会社関係';
@@ -2855,22 +2904,18 @@ function buildSection(officeName, people, sectionId, orgClass) {
   });
 
   // 他セクションのaddedMembersからこのセクションに来た人を収集
+  // （buildContent()の先頭で1回だけ計算されたwindow._movedInIndexを使うことで、
+  // 　事務所ごとに全addedMembersを再スキャンする必要をなくしている）
   const movedInMembers = [];
   const existingKeys = new Set([...people.map(p => p.uid||p.name), ...filteredLocalMembers.map(p => p.uid||p.name)]);
-  if (window._fbAddedMembers) {
-    Object.entries(window._fbAddedMembers).forEach(([sid, members]) => {
-      if (sid === sectionId) return; // 自分自身はスキップ
-      (members || []).forEach(p => {
-        const key = p.uid || p.name;
-        if (existingKeys.has(key)) return;
-        const latest = _getLatestOffice(p, orgClass);
-        if (latest === officeName) {
-          existingKeys.add(key);
-          movedInMembers.push(p);
-        }
-      });
-    });
-  }
+  const _movedInCandidates = (window._movedInIndex && window._movedInIndex[officeName]) || [];
+  _movedInCandidates.forEach(({ person: p, fromSectionId: sid }) => {
+    if (sid === sectionId) return; // 自分自身はスキップ
+    const key = p.uid || p.name;
+    if (existingKeys.has(key)) return;
+    existingKeys.add(key);
+    movedInMembers.push(p);
+  });
 
   const allPeople = [...sorted, ...filteredLocalMembers, ...movedInMembers]
     .filter((p, idx) => !_deletedIds.includes(_makeCardId(p, idx)) && !(p.uid && _deletedIds.includes('uid_' + p.uid)))
