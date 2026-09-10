@@ -1883,12 +1883,13 @@ function getPeopleForSection(orgKey, officeName) {
 function buildContent() {
   const content = document.getElementById('content');
   if (!content) return;
+  const frag = document.createDocumentFragment();
   const dn = document.createElement('div');
   dn.className = 'org-divider naibu-div';
   dn.innerHTML = '<div class="org-divider-label" style="background:#7c3aed">内部部局</div><div class="org-divider-line" style="background:#7c3aed"></div>';
-  content.appendChild(dn);
+  frag.appendChild(dn);
   NAIBU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('naibu',name), 'naibu-'+i, 'naibu'));
+    frag.appendChild(buildSection(name, getPeopleForSection('naibu',name), 'naibu-'+i, 'naibu'));
   });
 
   // 施設等機関
@@ -1896,9 +1897,9 @@ function buildContent() {
   ds2.className = 'org-divider shisetsu-div';
   ds2.style.marginTop = '28px';
   ds2.innerHTML = '<div class="org-divider-label" style="background:#0369a1">施設等機関</div><div class="org-divider-line" style="background:#0369a1"></div>';
-  content.appendChild(ds2);
+  frag.appendChild(ds2);
   SHISETSU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('shisetsu',name), 'shisetsu-'+i, 'shisetsu'));
+    frag.appendChild(buildSection(name, getPeopleForSection('shisetsu',name), 'shisetsu-'+i, 'shisetsu'));
   });
 
   // その他国関係機関
@@ -1906,9 +1907,9 @@ function buildContent() {
   dso.className = 'org-divider sonota-div';
   dso.style.marginTop = '28px';
   dso.innerHTML = '<div class="org-divider-label">その他国関係機関</div><div class="org-divider-line"></div>';
-  content.appendChild(dso);
+  frag.appendChild(dso);
   SONOTA_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('sonota',name), 'sonota-'+i, 'sonota'));
+    frag.appendChild(buildSection(name, getPeopleForSection('sonota',name), 'sonota-'+i, 'sonota'));
   });
 
   // 北海道開発局
@@ -1916,9 +1917,9 @@ function buildContent() {
   dh.className = 'org-divider hokkaido-div';
   dh.style.marginTop = '28px';
   dh.innerHTML = '<div class="org-divider-label">北海道開発局</div><div class="org-divider-line"></div>';
-  content.appendChild(dh);
+  frag.appendChild(dh);
   HOKKAIDO_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('hokkaido',name), 'hokkaido-'+i, 'hokkaido'));
+    frag.appendChild(buildSection(name, getPeopleForSection('hokkaido',name), 'hokkaido-'+i, 'hokkaido'));
   });
 
   // 東北地方整備局
@@ -1926,9 +1927,9 @@ function buildContent() {
   dto.className = 'org-divider tohoku-div';
   dto.style.marginTop = '28px';
   dto.innerHTML = '<div class="org-divider-label">東北地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dto);
+  frag.appendChild(dto);
   TOHOKU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('tohoku',name), 'tohoku-'+i, 'tohoku'));
+    frag.appendChild(buildSection(name, getPeopleForSection('tohoku',name), 'tohoku-'+i, 'tohoku'));
   });
 
   // 北陸地方整備局
@@ -1936,9 +1937,9 @@ function buildContent() {
   dhl.className = 'org-divider hokuriku-div';
   dhl.style.marginTop = '28px';
   dhl.innerHTML = '<div class="org-divider-label">北陸地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dhl);
+  frag.appendChild(dhl);
   HOKURIKU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('hokuriku',name), 'hokuriku-'+i, 'hokuriku'));
+    frag.appendChild(buildSection(name, getPeopleForSection('hokuriku',name), 'hokuriku-'+i, 'hokuriku'));
   });
 
   // 関東地方整備局
@@ -1946,9 +1947,9 @@ function buildContent() {
   dk.className = 'org-divider kanto-div';
   dk.style.marginTop = '28px';
   dk.innerHTML = '<div class="org-divider-label">関東地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dk);
+  frag.appendChild(dk);
   KANTO_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('kanto',name), 'kanto-'+i, 'kanto'));
+    frag.appendChild(buildSection(name, getPeopleForSection('kanto',name), 'kanto-'+i, 'kanto'));
   });
 
   // 中部地方整備局
@@ -1956,9 +1957,9 @@ function buildContent() {
   dcb.className = 'org-divider chubu-div';
   dcb.style.marginTop = '28px';
   dcb.innerHTML = '<div class="org-divider-label">中部地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dcb);
+  frag.appendChild(dcb);
   CHUBU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('chubu',name), 'chubu-'+i, 'chubu'));
+    frag.appendChild(buildSection(name, getPeopleForSection('chubu',name), 'chubu-'+i, 'chubu'));
   });
 
   // 近畿地方整備局
@@ -1966,9 +1967,9 @@ function buildContent() {
   dki.className = 'org-divider kinki-div';
   dki.style.marginTop = '28px';
   dki.innerHTML = '<div class="org-divider-label">近畿地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dki);
+  frag.appendChild(dki);
   KINKI_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('kinki',name), 'kinki-'+i, 'kinki'));
+    frag.appendChild(buildSection(name, getPeopleForSection('kinki',name), 'kinki-'+i, 'kinki'));
   });
 
   // 中国
@@ -1976,9 +1977,9 @@ function buildContent() {
   dc.className = 'org-divider chugoku-div';
   dc.style.marginTop = '28px';
   dc.innerHTML = '<div class="org-divider-label">中国地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dc);
+  frag.appendChild(dc);
   CHUGOKU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('chugoku',name), 'chugoku-'+i, 'chugoku'));
+    frag.appendChild(buildSection(name, getPeopleForSection('chugoku',name), 'chugoku-'+i, 'chugoku'));
   });
 
   // 四国
@@ -1986,9 +1987,9 @@ function buildContent() {
   ds.className = 'org-divider shikoku-div';
   ds.style.marginTop = '28px';
   ds.innerHTML = '<div class="org-divider-label">四国地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(ds);
+  frag.appendChild(ds);
   SHIKOKU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('shikoku',name), 'shikoku-'+i, 'shikoku'));
+    frag.appendChild(buildSection(name, getPeopleForSection('shikoku',name), 'shikoku-'+i, 'shikoku'));
   });
 
   // 九州地方整備局
@@ -1996,9 +1997,9 @@ function buildContent() {
   dky.className = 'org-divider kyushu-div';
   dky.style.marginTop = '28px';
   dky.innerHTML = '<div class="org-divider-label">九州地方整備局</div><div class="org-divider-line"></div>';
-  content.appendChild(dky);
+  frag.appendChild(dky);
   KYUSHU_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('kyushu',name), 'kyushu-'+i, 'kyushu'));
+    frag.appendChild(buildSection(name, getPeopleForSection('kyushu',name), 'kyushu-'+i, 'kyushu'));
   });
 
   // 水資源機構
@@ -2006,9 +2007,9 @@ function buildContent() {
   dsk.className = 'org-divider suikiko-div';
   dsk.style.marginTop = '28px';
   dsk.innerHTML = '<div class="org-divider-label">水資源機構</div><div class="org-divider-line"></div>';
-  content.appendChild(dsk);
+  frag.appendChild(dsk);
   SUIKIKO_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('suikiko',name), 'suikiko-'+i, 'suikiko'));
+    frag.appendChild(buildSection(name, getPeopleForSection('suikiko',name), 'suikiko-'+i, 'suikiko'));
   });
 
   // 都道府県（出向者）
@@ -2016,9 +2017,9 @@ function buildContent() {
   dtf.className = 'org-divider todofuken-div';
   dtf.style.marginTop = '28px';
   dtf.innerHTML = '<div class="org-divider-label">都道府県（出向者）</div><div class="org-divider-line"></div>';
-  content.appendChild(dtf);
+  frag.appendChild(dtf);
   TODOFUKEN_ORDER.forEach((name,i) => {
-    content.appendChild(buildSection(name, getPeopleForSection('todofuken',name), 'todofuken-'+i, 'todofuken'));
+    frag.appendChild(buildSection(name, getPeopleForSection('todofuken',name), 'todofuken-'+i, 'todofuken'));
   });
 
   // 会社関係セクションを最後に追加
@@ -2031,11 +2032,13 @@ function buildContent() {
   dc2.className = 'org-divider kaisha-div';
   dc2.style.marginTop = '28px';
   dc2.innerHTML = '<div class="org-divider-label" style="color:#059669">会社関係</div><div class="org-divider-line" style="background:#059669"></div>';
-  content.appendChild(dc2);
+  frag.appendChild(dc2);
   const _kaishaSec = buildSection('会社関係', DATA.chugoku['会社関係']||[], 'chugoku-20', 'chugoku');
   _kaishaSec.classList.remove('chugoku-section');
   _kaishaSec.classList.add('kaisha-section');
-  content.appendChild(_kaishaSec);
+  frag.appendChild(_kaishaSec);
+
+  content.appendChild(frag);
 
   updateAllOfficeCaseCounts();
 }
@@ -5771,11 +5774,17 @@ async function gateLogin() {
       const hash = await sha256Hex(rec.salt + pass);
       if (hash === rec.hash) {
         try { sessionStorage.setItem('fg_auth', id); } catch(e) {}
-        document.getElementById('authGate').style.display = 'none';
-        document.documentElement.style.overflow = '';
         applyPermissions();
         window._appAuthed = true;
+        // 職員数が多いと画面構築（buildContent）に数十秒かかることがあるため、
+        // ログイン画面を消さずに「準備中」であることを表示し続け、不安を与えないようにする。
+        // setTimeoutで一呼吸置いてから重い処理に入ることで、このメッセージが
+        // 実際に画面に描画されてからフリーズに入るようにしている。
+        btn.textContent = '画面を準備しています…（人数が多いため時間がかかります）';
+        await new Promise(resolve => setTimeout(resolve, 30));
         _startAppWhenReady();
+        document.getElementById('authGate').style.display = 'none';
+        document.documentElement.style.overflow = '';
       } else {
         errEl.textContent = 'IDまたはパスワードが正しくありません';
         errEl.style.display = 'block';
@@ -5903,10 +5912,18 @@ window.deleteFgUser = async function(id) {
   try { authed = !!sessionStorage.getItem('fg_auth'); } catch(e) {}
   if (authed) {
     const gate = document.getElementById('authGate');
-    if (gate) gate.style.display = 'none';
-    setTimeout(applyPermissions, 100);
-    window._appAuthed = true;
-    _startAppWhenReady();
+    // 職員数が多いと画面構築に数十秒かかることがあるため、ゲートを即座に消さず、
+    // 「準備中」であることを表示してから重い処理に入る（固まったように見せないため）。
+    if (gate) {
+      const gateBox = gate.querySelector('div');
+      if (gateBox) gateBox.innerHTML = '<div style="text-align:center;padding:40px 0;color:#1e3a5f;font-weight:700;">画面を準備しています…<br><span style="font-size:12px;color:#64748b;font-weight:400;">（人数が多いため時間がかかります）</span></div>';
+    }
+    setTimeout(() => {
+      applyPermissions();
+      window._appAuthed = true;
+      _startAppWhenReady();
+      if (gate) gate.style.display = 'none';
+    }, 30);
   } else {
     document.documentElement.style.overflow = 'hidden';
     // 未ログインの間はbuildContent()を呼ばない（ログイン成功後にgateLogin()側から呼ぶ）
