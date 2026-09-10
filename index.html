@@ -2130,9 +2130,14 @@ function officeCaseCount(type, officeName) {
     return (window._ankenRecs || []).filter(r => gyomuOfficeNameFromOrg(r.org) === officeName).length;
   }
   if (type === 'project') {
-    projectListInit();
+    // ここでprojectListInit()を呼ばない：以前はここで呼んでいたため、buildContent()が
+    // 事務所を1つ処理した時点（＝ほぼ即座）でPROJECT_LIST_MASTER_DATA（数千件）の
+    // 同期処理が走ってしまい、「関係工事等のタブを開くまで遅延させる」つもりだった
+    // 対応が実質無効化されていた。まだ読み込まれていなければ0件を返し、
+    // 実際の値は_ensureCaseDataSystemsLoaded()やタブ初回訪問時に反映される。
+    if (!window._projectListByClient) return 0;
     const code = officeCodeGet(officeName);
-    if (!code || !window._projectListByClient) return 0;
+    if (!code) return 0;
     return (window._projectListByClient.get(code) || []).filter(p => /^H/i.test(p.no || '')).length;
   }
   return 0;
@@ -5780,7 +5785,7 @@ async function gateLogin() {
         // ログイン画面を消さずに「準備中」であることを表示し続け、不安を与えないようにする。
         // setTimeoutで一呼吸置いてから重い処理に入ることで、このメッセージが
         // 実際に画面に描画されてからフリーズに入るようにしている。
-        btn.textContent = '画面を準備しています…（人数が多いため時間がかかります）';
+        btn.textContent = '🔗 人脈ネットワークを構築中…';
         await new Promise(resolve => setTimeout(resolve, 30));
         _startAppWhenReady();
         document.getElementById('authGate').style.display = 'none';
@@ -5916,7 +5921,7 @@ window.deleteFgUser = async function(id) {
     // 「準備中」であることを表示してから重い処理に入る（固まったように見せないため）。
     if (gate) {
       const gateBox = gate.querySelector('div');
-      if (gateBox) gateBox.innerHTML = '<div style="text-align:center;padding:40px 0;color:#1e3a5f;font-weight:700;">画面を準備しています…<br><span style="font-size:12px;color:#64748b;font-weight:400;">（人数が多いため時間がかかります）</span></div>';
+      if (gateBox) gateBox.innerHTML = '<div style="text-align:center;padding:40px 0;"><div style="font-size:30px;margin-bottom:14px;">🔗</div><div style="color:#1e3a5f;font-weight:700;font-size:16px;">人脈ネットワークを構築しています</div><div style="font-size:12px;color:#64748b;font-weight:400;margin-top:8px;">まもなく表示されます</div></div>';
     }
     setTimeout(() => {
       applyPermissions();
@@ -5954,6 +5959,13 @@ function _initApp() {
 
   // 起動時はdropdownのデフォルト(naibu)に合わせてコンテンツも切り替え
   setTimeout(() => { switchOrg('naibu'); }, 200);
+
+  // 工事案件バッジ（📋）の実際の件数は、画面表示をブロックしないよう
+  // 少し遅らせてから計算・反映する（PROJECT_LIST_MASTER_DATAの処理は数千件規模のため）
+  setTimeout(() => {
+    projectListInit();
+    updateAllOfficeCaseCounts();
+  }, 400);
 }
 
 // ログイン画面が表示されている間は、まだ見えない職員録を丸ごと構築する重い処理
