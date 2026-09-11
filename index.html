@@ -4558,6 +4558,9 @@ function submitAddMember() {
     if (sec && sec.style.display === 'none') sec.style.display = '';
   }
   closeAddMemberModal();
+
+  // 管理者ダッシュボード用：新規に職員カードを追加したことを記録する
+  logActivity('uid_' + newUid, fullName, document.getElementById('mmodalOffice').textContent || '', '新規職員追加');
 }
 
 function updateOfficeCount(sectionId, grid) {
@@ -5529,7 +5532,7 @@ function koujiRegGet(personName) {
 }
 
 // 個人の登録済み工事一覧を保存（localStorage + Firebase）
-function koujiRegSave(personName, arr) {
+function koujiRegSave(personName, arr, logType) {
   const key = koujiGetPersonKey(personName);
   koujiRegLocalSet(key, arr);
   const dataKey = koujiRegFbDataKey(key);
@@ -5540,7 +5543,7 @@ function koujiRegSave(personName, arr) {
   }
   // 管理者ダッシュボード用：この人物の関係工事リスト（積算担当者等の役割含む）が
   // 更新されたことを記録する（personKeyはhistories側と同じ形式なので重複カウントされない）
-  logActivity(key, personName, '', '関係工事リスト');
+  logActivity(key, personName, '', logType || '関係工事リスト');
 }
 
 // 工事番号入力欄から登録（関係工事・失注工事のどちらの番号でも登録できる）
@@ -5569,7 +5572,7 @@ function koujiRegister() {
     return;
   }
   list.push({ no: found.no, roles: [], type });
-  koujiRegSave(personName, list);
+  koujiRegSave(personName, list, '関係工事リスト（追加）');
   input.value = '';
   goToKoujiDisplay(personName);
 }
@@ -5645,7 +5648,7 @@ function koujiConfirmEditRole(idx) {
   const list = koujiRegGet(personName);
   if (!list[idx]) return;
   list[idx].roles = roles;
-  koujiRegSave(personName, list);
+  koujiRegSave(personName, list, roles.includes('積算担当者') ? '積算担当者（更新）' : '関係工事リスト（更新）');
   cellWrap.outerHTML = koujiRenderRoleCellView(idx, roles);
 }
 
@@ -5658,7 +5661,7 @@ function koujiDeleteRegistration(idx) {
   if (!target) return;
   if (!confirm(`工事番号「${target.no}」の登録を削除しますか？`)) return;
   list.splice(idx, 1);
-  koujiRegSave(personName, list);
+  koujiRegSave(personName, list, '関係工事リスト（削除）');
   goToKoujiDisplay(personName);
 }
 
@@ -5838,6 +5841,10 @@ function _activityMonthKey(date) {
 // 誰が・誰の情報を・何を更新したかを記録する（管理者ダッシュボード用）。
 // person基準で「重複なく何人を更新したか」を数えられるよう、personKeyには
 // できるだけuidを使う（uidが無い人物はnameで代用）。
+// 直近の記録内容を覚えておき、短時間の重複記録をまとめる
+// （1回の操作の中で内部的に複数回保存が走ることがあり、そのままだと同じ操作なのに
+// 　履歴が複数件残ってしまうため）
+window._recentActivityLog = window._recentActivityLog || {};
 function logActivity(personKey, personName, office, type) {
   try {
     const editorId = sessionStorage.getItem('fg_auth') || '';
@@ -5845,9 +5852,15 @@ function logActivity(personKey, personName, office, type) {
     // 参照できない（window.dbは常にundefined）。以前はここで誤ってwindow.dbを
     // チェックしていたため、ログが一切書き込まれていなかった。
     if (!editorId || typeof db === 'undefined') return;
+    // 同じ担当者・同じ人物・同じ種類の更新が10秒以内に続けて記録されようとした場合は
+    // 1回の操作とみなし、まとめて1件にする
+    const dedupeKey = editorId + '|' + personKey + '|' + type;
+    const now = Date.now();
+    if (now - (window._recentActivityLog[dedupeKey] || 0) < 10000) return;
+    window._recentActivityLog[dedupeKey] = now;
     const monthKey = _activityMonthKey();
     const entry = {
-      ts: Date.now(),
+      ts: now,
       editorId,
       personKey: String(personKey || personName || ''),
       personName: personName || '',
@@ -5907,9 +5920,13 @@ async function renderAdminDashboard() {
     }
 
     if (logEl) {
-      logEl.innerHTML = entries.length === 0
+      // 表示件数の上限（Firebase側のデータそのものは削除しない。表示だけ絞る）
+      const LOG_DISPLAY_LIMIT = 200;
+      const shown = entries.slice(0, LOG_DISPLAY_LIMIT);
+      const hiddenCount = entries.length - shown.length;
+      logEl.innerHTML = (entries.length === 0
         ? '<div style="color:var(--muted);font-size:12px;">履歴なし</div>'
-        : entries.map(e => `
+        : shown.map(e => `
             <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap;">
               <span style="color:var(--muted);white-space:nowrap;">${e.ts ? new Date(e.ts).toLocaleString('ja-JP') : ''}</span>
               <span style="font-weight:700;color:var(--accent);">${e.editorId || '?'}</span>
@@ -5919,7 +5936,8 @@ async function renderAdminDashboard() {
               <span style="background:#eef2ff;color:#4338ca;padding:1px 8px;border-radius:10px;font-weight:700;">${e.type || ''}</span>
               <span style="color:var(--muted);">を更新</span>
             </div>
-          `).join('');
+          `).join(''))
+        + (hiddenCount > 0 ? `<div style="padding:10px;text-align:center;color:var(--muted);font-size:11px;">他 ${hiddenCount}件（今月の合計 ${entries.length}件。直近${LOG_DISPLAY_LIMIT}件のみ表示しています）</div>` : '');
     }
   } catch (e) {
     if (summaryEl) summaryEl.innerHTML = '<div style="color:#dc2626;font-size:12px;">読み込みに失敗しました</div>';
@@ -6563,8 +6581,10 @@ function confirmDelete() {
   const card = document.querySelector(`[data-card-id="${cardId}"]`);
   if (card) {
     const uid = card.dataset.uid || '';
+    const org = card.dataset.org || '';
     const grid = card.closest('.staff-grid');
     const section = card.closest('.office-section');
+    const officeNameForLog = section?.querySelector('.office-name')?.textContent?.trim() || '';
     card.remove();
     // Update count
     if (section && grid) {
@@ -6618,6 +6638,9 @@ function confirmDelete() {
       window._deletedCards[cardId] = true;
       if (uid) window._deletedCards['uid_' + uid] = true;
     } catch(ex) {}
+    // 管理者ダッシュボード用：誰がこのカードを削除したかを記録する
+    const _delPersonKey = uid ? 'uid_' + uid : (org ? org + '|' + name : name);
+    logActivity(_delPersonKey, name, officeNameForLog, '職員カード削除');
   }
   closeDeleteModal();
 }
