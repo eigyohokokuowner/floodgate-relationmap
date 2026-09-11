@@ -1620,6 +1620,7 @@ function _deterministicUid(seed) {
   <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
     <label style="font-size:12px;color:var(--muted);">対象月：</label>
     <select id="adminDashMonthSelect" onchange="renderAdminDashboard()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;"></select>
+    <button onclick="clearAdminDashboardMonth()" style="font-size:11px;padding:4px 10px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer;">🗑️ この月の履歴を削除</button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:16px;">
     <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">担当者別 更新人数（今月、対象人物の重複なしカウント）</div>
@@ -3492,6 +3493,13 @@ function saveHistory(cardId,e) {
   const _histKey = _uid ? 'uid_' + _uid : (_org ? _org + '|' + card.dataset.name : card.dataset.name);
   const _histCacheKey = 'hist_' + _histKey;
   // 経歴データはFirebaseのみを正として扱うため、localStorageへは保存しない
+  // 経歴の行数が減っていれば「削除」を含む更新とみなす（管理者ダッシュボードのラベル判定用）
+  let _oldHistoryCount = 0;
+  try {
+    const _oldRaw = window._histCache && window._histCache[_histCacheKey];
+    if (_oldRaw) _oldHistoryCount = (JSON.parse(_oldRaw) || []).length;
+  } catch(e) {}
+
   // （メモリキャッシュにはこの場で即時反映し、Firebaseへの書き込みはこの後で行う）
   if (!window._histCache) window._histCache = {};
   window._histCache[_histCacheKey] = JSON.stringify(history);
@@ -3563,9 +3571,9 @@ function saveHistory(cardId,e) {
     window.fbSet(_fbPath, history);
     // 管理者ダッシュボード用：この人物の経歴等が更新されたことを記録する
     // （personKeyは関係工事側のkoujiGetPersonKey()と同じ形式 'uid_xxx' / 'org|name' に揃え、
-    // 　同一人物が別ルートで重複カウントされないようにする）
+    // 　同一人物が別ルートで重複カウントされないようにする。行数が減っていれば削除として扱う）
     const _latestOfficeForLog = history.length > 0 ? history[history.length - 1].office : '';
-    logActivity(_histKey, card.dataset.name, _latestOfficeForLog, '経歴関係');
+    logActivity(_histKey, card.dataset.name, _latestOfficeForLog, history.length < _oldHistoryCount ? '経歴（削除）' : '経歴関係');
   }
   const tl=document.getElementById('tl-'+cardId);
   if(tl) tl.innerHTML=renderTimeline(history);
@@ -5532,7 +5540,7 @@ function koujiRegGet(personName) {
 }
 
 // 個人の登録済み工事一覧を保存（localStorage + Firebase）
-function koujiRegSave(personName, arr, logType) {
+function koujiRegSave(personName, arr) {
   const key = koujiGetPersonKey(personName);
   koujiRegLocalSet(key, arr);
   const dataKey = koujiRegFbDataKey(key);
@@ -5541,9 +5549,6 @@ function koujiRegSave(personName, arr, logType) {
   if (window.fbSet) {
     window.fbSet('koujiRegistrations/' + dataKey, arr.length ? arr : null);
   }
-  // 管理者ダッシュボード用：この人物の関係工事リスト（積算担当者等の役割含む）が
-  // 更新されたことを記録する（personKeyはhistories側と同じ形式なので重複カウントされない）
-  logActivity(key, personName, '', logType || '関係工事リスト');
 }
 
 // 工事番号入力欄から登録（関係工事・失注工事のどちらの番号でも登録できる）
@@ -5572,7 +5577,8 @@ function koujiRegister() {
     return;
   }
   list.push({ no: found.no, roles: [], type });
-  koujiRegSave(personName, list, '関係工事リスト（追加）');
+  koujiRegSave(personName, list);
+  logActivity(koujiGetPersonKey(personName), personName, '', found.no + '　関係工事リスト（更新）', 'kouji_update_' + koujiNormalizeNo(found.no));
   input.value = '';
   goToKoujiDisplay(personName);
 }
@@ -5648,7 +5654,10 @@ function koujiConfirmEditRole(idx) {
   const list = koujiRegGet(personName);
   if (!list[idx]) return;
   list[idx].roles = roles;
-  koujiRegSave(personName, list, roles.includes('積算担当者') ? '積算担当者（更新）' : '関係工事リスト（更新）');
+  koujiRegSave(personName, list);
+  const _no = list[idx].no || '';
+  const _typeLabel = roles.includes('積算担当者') ? '積算担当者（更新）' : '関係工事リスト（更新）';
+  logActivity(koujiGetPersonKey(personName), personName, '', (_no ? _no + '　' : '') + _typeLabel, 'kouji_update_' + koujiNormalizeNo(_no));
   cellWrap.outerHTML = koujiRenderRoleCellView(idx, roles);
 }
 
@@ -5661,7 +5670,8 @@ function koujiDeleteRegistration(idx) {
   if (!target) return;
   if (!confirm(`工事番号「${target.no}」の登録を削除しますか？`)) return;
   list.splice(idx, 1);
-  koujiRegSave(personName, list, '関係工事リスト（削除）');
+  koujiRegSave(personName, list);
+  logActivity(koujiGetPersonKey(personName), personName, '', target.no + '　関係工事リスト（削除）', 'kouji_delete_' + koujiNormalizeNo(target.no) + '_' + Date.now());
   goToKoujiDisplay(personName);
 }
 
@@ -5841,24 +5851,28 @@ function _activityMonthKey(date) {
 // 誰が・誰の情報を・何を更新したかを記録する（管理者ダッシュボード用）。
 // person基準で「重複なく何人を更新したか」を数えられるよう、personKeyには
 // できるだけuidを使う（uidが無い人物はnameで代用）。
-// 直近の記録内容を覚えておき、短時間の重複記録をまとめる
-// （1回の操作の中で内部的に複数回保存が走ることがあり、そのままだと同じ操作なのに
-// 　履歴が複数件残ってしまうため）
+// 直近の記録を覚えておき、短時間の同一カテゴリの操作は「新しい行を増やす」のではなく
+// 「既存の行を上書き更新する」ことで1件にまとめる（例：工事を登録した直後に役割を確定した場合、
+// 　2行に分かれず、最後の状態（役割名など）を反映した1行になる）
 window._recentActivityLog = window._recentActivityLog || {};
-function logActivity(personKey, personName, office, type) {
+function logActivity(personKey, personName, office, type, category) {
   try {
     const editorId = sessionStorage.getItem('fg_auth') || '';
     // dbは別scriptタグ内でconst宣言されているbare変数で、window.dbとしては
     // 参照できない（window.dbは常にundefined）。以前はここで誤ってwindow.dbを
     // チェックしていたため、ログが一切書き込まれていなかった。
     if (!editorId || typeof db === 'undefined') return;
-    // 同じ担当者・同じ人物・同じ種類の更新が10秒以内に続けて記録されようとした場合は
-    // 1回の操作とみなし、まとめて1件にする
-    const dedupeKey = editorId + '|' + personKey + '|' + type;
-    const now = Date.now();
-    if (now - (window._recentActivityLog[dedupeKey] || 0) < 10000) return;
-    window._recentActivityLog[dedupeKey] = now;
+    category = category || type; // カテゴリ省略時はtypeそのものをカテゴリとして使う
     const monthKey = _activityMonthKey();
+    const dedupeKey = editorId + '|' + personKey + '|' + category;
+    const now = Date.now();
+    const recent = window._recentActivityLog[dedupeKey];
+    if (recent && recent.monthKey === monthKey && (now - recent.ts) < 10000) {
+      // 直近10秒以内の同一カテゴリの操作は、新規行を足さずに既存行を上書きする
+      db.ref('activityLog/' + monthKey + '/' + recent.fbKey).update({ ts: now, type: type || '' });
+      window._recentActivityLog[dedupeKey] = { ts: now, fbKey: recent.fbKey, monthKey };
+      return;
+    }
     const entry = {
       ts: now,
       editorId,
@@ -5867,7 +5881,8 @@ function logActivity(personKey, personName, office, type) {
       office: office || '',
       type: type || ''
     };
-    db.ref('activityLog/' + monthKey).push(entry);
+    const ref = db.ref('activityLog/' + monthKey).push(entry);
+    window._recentActivityLog[dedupeKey] = { ts: now, fbKey: ref.key, monthKey };
   } catch(e) {}
 }
 
@@ -5941,6 +5956,21 @@ async function renderAdminDashboard() {
     }
   } catch (e) {
     if (summaryEl) summaryEl.innerHTML = '<div style="color:#dc2626;font-size:12px;">読み込みに失敗しました</div>';
+  }
+}
+
+// 選択中の月の更新履歴を削除する（管理者のみ。押し間違い防止のため確認を挟む）
+async function clearAdminDashboardMonth() {
+  if (!isAdmin() || typeof db === 'undefined') return;
+  const sel = document.getElementById('adminDashMonthSelect');
+  const monthKey = (sel && sel.value) || _activityMonthKey();
+  if (!confirm(`${monthKey}の更新履歴をすべて削除します。この操作は元に戻せません。よろしいですか？`)) return;
+  try {
+    await db.ref('activityLog/' + monthKey).remove();
+    window._recentActivityLog = {}; // 直近の上書き先も忘れさせる
+    renderAdminDashboard();
+  } catch (e) {
+    alert('削除に失敗しました');
   }
 }
 
