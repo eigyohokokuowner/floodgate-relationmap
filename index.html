@@ -5841,7 +5841,10 @@ function _activityMonthKey(date) {
 function logActivity(personKey, personName, office, type) {
   try {
     const editorId = sessionStorage.getItem('fg_auth') || '';
-    if (!editorId || !window.db) return;
+    // dbは別scriptタグ内でconst宣言されているbare変数で、window.dbとしては
+    // 参照できない（window.dbは常にundefined）。以前はここで誤ってwindow.dbを
+    // チェックしていたため、ログが一切書き込まれていなかった。
+    if (!editorId || typeof db === 'undefined') return;
     const monthKey = _activityMonthKey();
     const entry = {
       ts: Date.now(),
