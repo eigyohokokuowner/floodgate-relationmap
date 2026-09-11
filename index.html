@@ -5764,19 +5764,25 @@ function goToKouji(personName, e) {
 function _initHeavyDataSystems() {
   officeCodeRefreshAllBadges();
   officeCodeSyncFromFirebase();
+  // 以下はFirebaseのリスナーを登録するだけの軽い処理で、実際のデータは非同期の
+  // コールバック内で届く（画面表示をブロックしない）。ここで即時に登録しておかないと、
+  // 業務案件・発注実績のバッジがタブを開くまでずっと「0件」のままになってしまう。
+  koujiSyncFromFirebase();
+  koujiInitScoreAwardStatusListener();
+  projectListSyncFromFirebase();
+  gyomuSyncFromFirebase();
+  ankenSyncFromFirebase();
 }
 
 window._caseDataSystemsLoaded = false;
 function _ensureCaseDataSystemsLoaded() {
   if (window._caseDataSystemsLoaded) return;
   window._caseDataSystemsLoaded = true;
-  koujiSyncFromFirebase();
-  koujiInitScoreAwardStatusListener();
+  // PROJECT_LIST_MASTER_DATA（数千件）の同期処理は、_initApp側のsetTimeoutで
+  // 既に実行される想定だが、それより先にタブを開かれた場合の保険としてここでも呼ぶ
+  // （projectListInit()自体は多重実行防止のガード付きなので二重処理にはならない）
   projectListInit();
   projectUpdateDbCount();
-  projectListSyncFromFirebase();
-  gyomuSyncFromFirebase();
-  ankenSyncFromFirebase();
 }
 
 
