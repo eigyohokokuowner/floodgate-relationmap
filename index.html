@@ -826,8 +826,13 @@
   }
 
   // 初期ユーザー登録（Firebase接続後に直接実行）
+  // ※ 以前はここで毎回無条件にset()していたため、ユーザー管理で後から登録した
+  // 　name（表示名）が、ページを開き直すたびに消えてしまっていた。
+  // 　既に登録済みであれば何もしない（初回のみ有効な初期化処理とする）。
   (async function() {
     try {
+      const existing = await db.ref('fgAuthUsers/kkawate').once('value');
+      if (existing.val()) return;
       const salt = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4';
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + '980109'));
       const hash = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
