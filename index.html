@@ -1194,7 +1194,7 @@ function _deterministicUid(seed) {
 <body>
 <!-- ユーザー管理モーダル（管理者のみ） -->
 <div id="userMgmtModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:12px;padding:28px;width:100%;max-width:680px;max-height:85vh;overflow-y:auto;overflow-x:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:16px;box-sizing:border-box;">
+  <div style="background:#fff;border-radius:12px;padding:28px;width:100%;max-width:760px;max-height:85vh;overflow-y:auto;overflow-x:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:16px;box-sizing:border-box;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
       <h3 style="margin:0;font-size:16px;color:var(--text)">👤 ユーザー管理</h3>
       <button onclick="closeUserMgmt()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
@@ -1212,10 +1212,10 @@ function _deterministicUid(seed) {
     <div style="margin-bottom:16px;">
       <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px;">新規ユーザー追加</div>
       <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <input id="newUserId" type="text" placeholder="ID" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
-        <input id="newUserName" type="text" placeholder="名前（任意）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
-        <input id="newUserPass" type="password" placeholder="パスワード" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
-        <button id="addUserBtn" onclick="addUser()" style="padding:8px 16px;background:#1e3a5f;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;">追加</button>
+        <input id="newUserId" type="text" placeholder="ID" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <input id="newUserName" type="text" placeholder="名前（任意）" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <input id="newUserPass" type="password" placeholder="パスワード" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <button id="addUserBtn" onclick="addUser()" style="padding:8px 16px;background:#1e3a5f;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;">追加</button>
       </div>
     </div>
 
@@ -1225,9 +1225,9 @@ function _deterministicUid(seed) {
     <div>
       <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px;">パスワード変更</div>
       <div style="display:flex;gap:8px;">
-        <input id="changePassId" type="text" placeholder="対象のID" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
-        <input id="newUserPass2" type="password" placeholder="新しいパスワード" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
-        <button onclick="changePassword()" style="padding:8px 16px;background:#059669;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;">変更</button>
+        <input id="changePassId" type="text" placeholder="対象のID" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <input id="newUserPass2" type="password" placeholder="新しいパスワード" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <button onclick="changePassword()" style="padding:8px 16px;background:#059669;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;">変更</button>
       </div>
     </div>
 
