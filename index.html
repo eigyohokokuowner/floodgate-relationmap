@@ -1211,9 +1211,10 @@ function _deterministicUid(seed) {
     <!-- ユーザー追加 -->
     <div style="margin-bottom:16px;">
       <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px;">新規ユーザー追加</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
         <input id="newUserId" type="text" placeholder="ID" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
         <input id="newUserName" type="text" placeholder="名前（任意）" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        <input id="newUserDept" type="text" placeholder="所属（任意）" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
         <input id="newUserPass" type="password" placeholder="パスワード" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
         <button id="addUserBtn" onclick="addUser()" style="padding:8px 16px;background:#1e3a5f;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;">追加</button>
       </div>
@@ -6172,10 +6173,17 @@ async function renderAdminDashboard() {
     ]);
     const data = snap.val() || {};
     const users = usersSnap.val() || {};
-    // ID→登録名のマップ（名前が未登録のIDはそのままIDを表示する）
-    const editorNames = {};
-    Object.entries(users).forEach(([id, rec]) => { if (rec && rec.name) editorNames[id] = rec.name; });
-    const displayEditor = (id) => editorNames[id] ? `${editorNames[id]}（${id}）` : (id || '?');
+    // ID→登録名・所属のマップ（未登録のIDはそのままIDを表示する）
+    const editorInfo = {};
+    Object.entries(users).forEach(([id, rec]) => {
+      if (rec && (rec.name || rec.affiliation)) editorInfo[id] = { name: rec.name || '', affiliation: rec.affiliation || '' };
+    });
+    const displayEditor = (id) => {
+      const info = editorInfo[id];
+      if (!info) return id || '?';
+      const label = [info.name, info.affiliation].filter(Boolean).join(' ');
+      return label ? `${label}（${id}）` : (id || '?');
+    };
     const entries = Object.values(data).sort((a, b) => (b.ts || 0) - (a.ts || 0));
 
     // 担当者ごとに「重複なしで何人を更新したか」を集計
@@ -6337,30 +6345,35 @@ async function loadUserList() {
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;gap:8px;">
       <div style="min-width:0;">
         <span style="font-weight:700;color:var(--text)">${key}</span>
-        ${rec.name ? `<span style="color:var(--muted);margin-left:6px;">（${rec.name}）</span>` : ''}
+        ${rec.name || rec.affiliation ? `<span style="color:var(--muted);margin-left:6px;">（${[rec.name, rec.affiliation].filter(Boolean).join(' ')}）</span>` : ''}
         ${key === ADMIN_ID ? '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#fef3c7;color:#92400e;margin-left:6px;">管理者</span>' : ''}
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">${new Date(rec.createdAt||0).toLocaleDateString('ja-JP')}</div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;">
-        <button onclick="editUserName('${key}')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:5px;background:#f8fafc;color:var(--text);cursor:pointer;white-space:nowrap;">✎ 名前</button>
+        <button onclick="editUserInfo('${key}')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:5px;background:#f8fafc;color:var(--text);cursor:pointer;white-space:nowrap;">✎ 名前・所属</button>
         ${key !== ADMIN_ID ? `<button onclick="deleteUser('${key}')" style="font-size:11px;padding:4px 10px;border:1px solid #ef4444;border-radius:5px;background:#fef2f2;color:#ef4444;cursor:pointer;">削除</button>` : ''}
       </div>
     </div>`).join('');
 }
 
 // ユーザーの表示名を登録・変更する（管理者ダッシュボードでID代わりに表示される）
-async function editUserName(id) {
-  const snap = await db.ref('fgAuthUsers/' + gateAuthKey(id) + '/name').once('value');
-  const current = snap.val() || '';
-  const input = prompt(`「${id}」の名前を入力してください（空にすると未設定に戻ります）`, current);
-  if (input === null) return; // キャンセル
-  await db.ref('fgAuthUsers/' + gateAuthKey(id) + '/name').set(input.trim() || null);
+async function editUserInfo(id) {
+  const key = gateAuthKey(id);
+  const snap = await db.ref('fgAuthUsers/' + key).once('value');
+  const rec = snap.val() || {};
+  const name = prompt(`「${id}」の名前を入力してください（空にすると未設定に戻ります）`, rec.name || '');
+  if (name === null) return; // キャンセル
+  const affiliation = prompt(`「${id}」の所属を入力してください（例：北海道営業所 所長。空にすると未設定に戻ります）`, rec.affiliation || '');
+  if (affiliation === null) return; // キャンセル
+  await db.ref('fgAuthUsers/' + key + '/name').set(name.trim() || null);
+  await db.ref('fgAuthUsers/' + key + '/affiliation').set(affiliation.trim() || null);
   loadUserList();
 }
 
 async function addUser() {
   const newId = document.getElementById('newUserId').value.trim();
   const newName = document.getElementById('newUserName').value.trim();
+  const newDept = document.getElementById('newUserDept').value.trim();
   const newPass = document.getElementById('newUserPass').value;
   const errEl = document.getElementById('userMgmtError');
   errEl.style.display = 'none';
@@ -6375,9 +6388,11 @@ async function addUser() {
     const hash = await sha256Hex(salt + newPass);
     const rec = { hash, salt, createdAt: Date.now() };
     if (newName) rec.name = newName;
+    if (newDept) rec.affiliation = newDept;
     await db.ref('fgAuthUsers/' + gateAuthKey(newId)).set(rec);
     document.getElementById('newUserId').value = '';
     document.getElementById('newUserName').value = '';
+    document.getElementById('newUserDept').value = '';
     document.getElementById('newUserPass').value = '';
     loadUserList();
   } catch(e) { errEl.textContent = '登録エラー: ' + e.message; errEl.style.display = 'block'; }
