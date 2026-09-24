@@ -1772,6 +1772,30 @@ function _deterministicUid(seed) {
   </div>
 </div>
 
+<!-- 手動登録した関係の編集ポップアップ（種類・強度・メモをまとめて編集。保存にはパスワードが必要） -->
+<div class="rel-modal-overlay" id="editRelModal">
+  <div class="rel-modal">
+    <h3>✎ 関係を編集</h3>
+    <div id="editRelTitle" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
+    <label>関係の種類（自由入力）</label>
+    <input type="text" id="editRelTypeInput" placeholder="例：大学の先輩・後輩、同期、友人 など">
+    <label>関係の強度</label>
+    <select id="editRelStrengthSel">
+      <option value="1">非常に低い</option>
+      <option value="2">低い</option>
+      <option value="3">普通</option>
+      <option value="4">高い</option>
+      <option value="5">非常に高い</option>
+    </select>
+    <label>メモ（任意）</label>
+    <input type="text" id="editRelNoteInput" placeholder="補足など">
+    <div class="rel-modal-actions">
+      <button class="rel-modal-cancel" onclick="closeEditRelModal()">キャンセル</button>
+      <button class="rel-modal-save" onclick="saveEditRelModal()">保存（パスワードが必要です）</button>
+    </div>
+  </div>
+</div>
+
 <!-- 管理者ダッシュボードタブ（管理者のみ） -->
 <div class="tab-view" id="tabAdmin" style="display:none;flex-direction:column;overflow:hidden;">
   <div style="padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
@@ -8428,29 +8452,11 @@ function renderRelInfo(name) {
       ? `<button onclick="event.stopPropagation();deleteManualRel('${name}','${r.name}')"
            style="font-size:10px;background:none;border:none;color:#ef4444;cursor:pointer;padding:2px 4px;flex-shrink:0" title="関係を削除">✕</button>`
       : '';
-    const strengthSel = hasManual ? `
-      <select onclick="event.stopPropagation()" onchange="updateRelStrength('${name}','${r.name}',this.value,this)"
-        style="font-size:10px;font-family:inherit;padding:1px 4px;border:1px solid var(--border);border-radius:3px;color:var(--text);background:#fff;cursor:pointer"
-        title="変更にはパスワードが必要です">
-        <option value="1" ${r.strength===1?'selected':''}>非常に低い</option>
-        <option value="2" ${r.strength===2?'selected':''}>低い</option>
-        <option value="3" ${r.strength===3?'selected':''}>普通</option>
-        <option value="4" ${r.strength===4?'selected':''}>高い</option>
-        <option value="5" ${r.strength===5?'selected':''}>非常に高い</option>
-      </select>` : '';
-    // 関係の種類・メモは追加時と同じく自由入力で編集できるようにする（変更にはパスワードが必要）
-    const manualTag = tags.find(t => t.type === 'manual');
-    const escAttr = s => (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    const typeInput = hasManual ? `
-      <input type="text" value="${escAttr(manualTag ? manualTag.label : '')}" placeholder="関係の種類"
-        onclick="event.stopPropagation()" onchange="updateRelType('${name}','${r.name}',this.value,this)"
-        title="変更にはパスワードが必要です"
-        style="font-size:10px;font-family:inherit;padding:2px 6px;border:1px solid var(--border);border-radius:3px;color:var(--text);background:#fff;width:100%;box-sizing:border-box;margin-top:3px;">` : '';
-    const noteInput = hasManual ? `
-      <input type="text" value="${escAttr(detail)}" placeholder="メモ"
-        onclick="event.stopPropagation()" onchange="updateRelNote('${name}','${r.name}',this.value,this)"
-        title="変更にはパスワードが必要です"
-        style="font-size:10px;font-family:inherit;padding:2px 6px;border:1px solid var(--border);border-radius:3px;color:var(--muted);background:#fff;width:100%;box-sizing:border-box;margin-top:3px;">` : '';
+    // 手動登録がある場合は「✎ 編集」ボタンからポップアップで種類・強度・メモをまとめて編集する
+    const editBtn = hasManual
+      ? `<button onclick="event.stopPropagation();openEditRelModal('${name}','${r.name}')"
+           style="font-size:10px;font-family:inherit;padding:1px 8px;border:1px solid var(--border);border-radius:3px;color:var(--text);background:#fff;cursor:pointer;margin-top:3px;">✎ 編集</button>`
+      : '';
     return `<div class="ri-rel-item" onclick="relSelect('${r.name}')" style="display:flex;align-items:flex-start;gap:8px">
       <div class="rel-dot" style="background:${relRelColor(r.type,r.strength)};margin-top:3px;flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
@@ -8461,10 +8467,8 @@ function renderRelInfo(name) {
           ${tags.map(relTagBadge).join('')}
           ${r.type==='co' ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#ede9fe;color:#6d28d9;font-weight:600;">${r.strength}年</span>` : ''}
         </div>
-        ${detail && !hasManual ? `<div class="ri-rel-type">${detail}</div>` : ''}
-        ${typeInput}
-        ${noteInput}
-        ${strengthSel}
+        ${detail?`<div class="ri-rel-type">${detail}</div>`:''}
+        ${editBtn}
       </div>
       ${delBtn}
     </div>`;
@@ -8607,70 +8611,45 @@ document.addEventListener('click', e => {
     dropdown.style.display = 'none';
   }
 });
-function updateRelStrength(nameA, nameB, newStrength, selectEl) {
-  requireWriteAuth(() => {
-    let rels = loadManualRels();
-    rels = rels.map(r => {
-      if ((r.a === nameA && r.b === nameB) || (r.a === nameB && r.b === nameA)) {
-        return {...r, strength: newStrength};
-      }
-      return r;
-    });
-    saveManualRels(rels);
-    if (window.fbSet) window.fbSet('manualRels', rels);
-    renderRelInfo(relSelected);
-  });
-  // 認証キャンセル時は元の値に戻す
-  if (selectEl) setTimeout(() => {
-    const rels = loadManualRels();
-    const rel = rels.find(r => (r.a===nameA&&r.b===nameB)||(r.a===nameB&&r.b===nameA));
-    if (rel) selectEl.value = rel.strength;
-  }, 100);
+// 「✎ 編集」ボタンから、種類・強度・メモをまとめて編集するポップアップを開く
+// （パスワードはポップアップを開く前ではなく、保存時にrequireWriteAuthで要求する）
+function openEditRelModal(nameA, nameB) {
+  const rels = loadManualRels();
+  const rel = rels.find(r => (r.a===nameA&&r.b===nameB)||(r.a===nameB&&r.b===nameA));
+  if (!rel) return;
+  document.getElementById('editRelModal').dataset.nameA = nameA;
+  document.getElementById('editRelModal').dataset.nameB = nameB;
+  document.getElementById('editRelTitle').textContent = `${nameA} と ${nameB} の関係`;
+  document.getElementById('editRelTypeInput').value = rel.relType || '';
+  document.getElementById('editRelStrengthSel').value = rel.strength || 3;
+  document.getElementById('editRelNoteInput').value = rel.note || '';
+  document.getElementById('editRelModal').classList.add('open');
 }
 
-// 関係の種類（自由入力）を編集する。追加時と同じくrelTypeフィールドを更新する。
-// updateRelStrength同様、パスワード（requireWriteAuth）で保護する。
-function updateRelType(nameA, nameB, newType, inputEl) {
-  requireWriteAuth(() => {
-    let rels = loadManualRels();
-    rels = rels.map(r => {
-      if ((r.a === nameA && r.b === nameB) || (r.a === nameB && r.b === nameA)) {
-        return {...r, relType: newType};
-      }
-      return r;
-    });
-    saveManualRels(rels);
-    if (window.fbSet) window.fbSet('manualRels', rels);
-    renderRelInfo(relSelected);
-  });
-  // 認証キャンセル時は元の値に戻す
-  if (inputEl) setTimeout(() => {
-    const rels = loadManualRels();
-    const rel = rels.find(r => (r.a===nameA&&r.b===nameB)||(r.a===nameB&&r.b===nameA));
-    if (rel) inputEl.value = rel.relType || '';
-  }, 100);
+function closeEditRelModal() {
+  document.getElementById('editRelModal').classList.remove('open');
 }
 
-// メモ（自由入力）を編集する。updateRelType同様、パスワードで保護する。
-function updateRelNote(nameA, nameB, newNote, inputEl) {
+function saveEditRelModal() {
+  const modal = document.getElementById('editRelModal');
+  const nameA = modal.dataset.nameA, nameB = modal.dataset.nameB;
+  const newType = document.getElementById('editRelTypeInput').value.trim();
+  const newStrength = parseInt(document.getElementById('editRelStrengthSel').value) || 3;
+  const newNote = document.getElementById('editRelNoteInput').value.trim();
+  if (!newType) { alert('関係の種類は必須です'); return; }
   requireWriteAuth(() => {
     let rels = loadManualRels();
     rels = rels.map(r => {
       if ((r.a === nameA && r.b === nameB) || (r.a === nameB && r.b === nameA)) {
-        return {...r, note: newNote};
+        return {...r, relType: newType, strength: newStrength, note: newNote};
       }
       return r;
     });
     saveManualRels(rels);
     if (window.fbSet) window.fbSet('manualRels', rels);
+    closeEditRelModal();
     renderRelInfo(relSelected);
   });
-  // 認証キャンセル時は元の値に戻す
-  if (inputEl) setTimeout(() => {
-    const rels = loadManualRels();
-    const rel = rels.find(r => (r.a===nameA&&r.b===nameB)||(r.a===nameB&&r.b===nameA));
-    if (rel) inputEl.value = rel.note || '';
-  }, 100);
 }
 
 function deleteManualRel(nameA, nameB) {
