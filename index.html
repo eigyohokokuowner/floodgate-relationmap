@@ -8155,7 +8155,8 @@ function drawRelFrame() {
             relCtx.setLineDash([5,4]);
           }
         } else {
-          relCtx.lineWidth = rel.strength >= 5 ? 4 : rel.strength >= 4 ? 3 : rel.strength >= 3 ? 2 : rel.strength >= 2 ? 1.5 : 1;
+          // 線の太さは強度に関わらず「非常に高い」と同じ太さに統一する（色は引き続き強度で変える）
+          relCtx.lineWidth = 4;
           relCtx.setLineDash([]);
         }
         relCtx.beginPath();
@@ -8181,7 +8182,8 @@ function drawRelFrame() {
         relCtx.save();
         relCtx.globalAlpha = 0.65;
         relCtx.strokeStyle = col;
-        relCtx.lineWidth = strength >= 5 ? 4 : strength >= 4 ? 3 : strength >= 3 ? 2 : 1.5;
+        // 線の太さは強度に関わらず「非常に高い」と同じ太さに統一する（色は引き続き強度で変える）
+        relCtx.lineWidth = 4;
         relCtx.setLineDash([]);
         relCtx.beginPath();
         relCtx.moveTo(n1.x, n1.y);
@@ -8481,9 +8483,12 @@ function renderRelInfo(name) {
   const mixed = allRels.filter(r=>r.tags.some(t=>t.type==='manual') && r.tags.some(t=>t.type==='co'));
 
   const currentInfo = getCurrentInfo(p);
+  // 職員録のカードと同じ方法（保存済みの生年から算出）で年齢を表示する
+  const _riBirthYear = p ? profileGet('birth', p.name, p.uid || '') : '';
+  const _riAgeText = _riBirthYear ? (new Date().getFullYear() - parseInt(_riBirthYear)) + '歳' : '';
 
   body.innerHTML = `<div class="rel-info-body">
-    <div class="ri-name">${p?.displayName||p?.name||name}</div>
+    <div class="ri-name">${p?.displayName||p?.name||name}${_riAgeText ? ` <span style="font-size:12px;color:var(--muted);font-weight:400;">${_riAgeText}</span>` : ''}</div>
     <div class="ri-role">${currentInfo.role||p?.role||'—'}</div>
     <div class="ri-office">${currentInfo.office||p?.office||''}${(currentInfo.dept||p?.dept)?' / '+(currentInfo.dept||p?.dept):''}</div>
     <div style="margin-top:6px">
