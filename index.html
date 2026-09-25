@@ -8450,6 +8450,9 @@ function renderRelInfo(name) {
     const relOffice = relInfo.office;
     const relRole = relInfo.role;
     const relDept = relInfo.dept;
+    // 選択中の本人と同じ方法（保存済みの生年から算出）で、リストの各人物にも年齢を表示する
+    const relBirthYear = relP ? profileGet('birth', relP.name, relP.uid || '') : '';
+    const relAgeText = relBirthYear ? (new Date().getFullYear() - parseInt(relBirthYear)) + '歳' : '';
     const delBtn = hasManual
       ? `<button onclick="event.stopPropagation();deleteManualRel('${name}','${r.name}')"
            style="font-size:10px;background:none;border:none;color:#ef4444;cursor:pointer;padding:2px 4px;flex-shrink:0" title="関係を削除">✕</button>`
@@ -8462,7 +8465,7 @@ function renderRelInfo(name) {
     return `<div class="ri-rel-item" onclick="relSelect('${r.name}')" style="display:flex;align-items:flex-start;gap:8px">
       <div class="rel-dot" style="background:${relRelColor(r.type,r.strength)};margin-top:3px;flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
-        <div class="ri-rel-name">${r.name}</div>
+        <div class="ri-rel-name">${r.name}${relAgeText ? ` <span style="font-size:10px;color:var(--muted);font-weight:400;">${relAgeText}</span>` : ''}</div>
         ${relRole ? `<div style="font-size:10px;color:var(--accent);font-weight:600;">${relRole}</div>` : ''}
         ${(relOffice||relDept) ? `<div style="font-size:10px;color:var(--muted);">${relOffice}${relDept?' / '+relDept:''}</div>` : ''}
         <div style="display:flex;flex-wrap:wrap;gap:3px;margin:2px 0;align-items:center;">
