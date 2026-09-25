@@ -6489,6 +6489,41 @@ window.deleteFgUser = async function(id) {
   }
 })();
 
+// ===== 携帯利用時の自動ログアウト（5分間操作がなければログアウト） =====
+// 社外（携帯）に置き忘れた場合の対策。PCでの利用時は対象外とする（画面幅で判定）。
+// ログアウトは「セッション情報を消してページを再読み込み」で行う。これにより、
+// 経歴編集など未保存の入力は破棄され、次にログインした際は職員録トップ（内部部局）
+// から始まる（_initApp()の既存の初期表示と同じ挙動）。
+(function() {
+  const INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5分
+  const CHECK_INTERVAL_MS = 10 * 1000; // 10秒おきにチェック
+  let lastActivity = Date.now();
+  function isMobileView() { return window.innerWidth <= 680; }
+  function markActivity() { lastActivity = Date.now(); }
+  ['click', 'touchstart', 'keydown'].forEach(evt => {
+    document.addEventListener(evt, markActivity, { passive: true });
+  });
+  // scrollイベントはバブリングしない環境もあるため、キャプチャフェーズで拾う
+  document.addEventListener('scroll', markActivity, { passive: true, capture: true });
+
+  function checkInactivity() {
+    if (!isMobileView()) return; // PCでの利用は対象外
+    let authed = false;
+    try { authed = !!sessionStorage.getItem('fg_auth'); } catch(e) {}
+    if (!authed) return; // 未ログインなら何もしない
+    if (Date.now() - lastActivity >= INACTIVITY_LIMIT_MS) {
+      try { sessionStorage.removeItem('fg_auth'); } catch(e) {}
+      location.reload();
+    }
+  }
+  setInterval(checkInactivity, CHECK_INTERVAL_MS);
+  // 画面ロック解除やアプリ切り替えからの復帰時は、バックグラウンド中タイマーが
+  // 止まっている（遅延する）ことがあるため、画面に戻った瞬間にも改めてチェックする
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkInactivity();
+  });
+})();
+
 function updateMemberCount() {
   const badge = document.getElementById('memberCountBadge');
   if (!badge) return;
