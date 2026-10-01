@@ -1985,18 +1985,16 @@ function calcAgeFromBirth(b) {
   return age;
 }
 
-// 保存済みの生年（月）データを<input type="month">のvalueに使える"YYYY-MM"形式にする。
-// 旧データ（年のみ）は月を "01" とみなして表示する（実際の月は不明なため、
-// 必要であれば編集時に正しい月に直してもらう）。
-function normalizeBirthForInput(b) {
-  if (!b) return '';
+// 保存済みの生年（月）データを、年・月それぞれ別の入力欄に分けて表示するために分解する。
+// 月が分からない（保存されていない）場合はmonthを空文字のままにする
+// （「1月」と決め打ちしてしまうと、本当に1月なのか単に不明なだけなのか、
+// 　後から区別がつかなくなるため）。
+function splitBirthForInputs(b) {
+  if (!b) return { year: '', month: '' };
   const s = String(b);
-  if (/^\d{4}$/.test(s)) return s + '-01';
-  if (/^\d{4}-\d{1,2}$/.test(s)) {
-    const [y, mo] = s.split('-');
-    return y + '-' + mo.padStart(2, '0');
-  }
-  return '';
+  const m = s.match(/^(\d{4})(?:-(\d{1,2}))?$/);
+  if (!m) return { year: '', month: '' };
+  return { year: m[1], month: m[2] ? String(parseInt(m[2])) : '' };
 }
 function profileSet(type, name, uid, val) {
   const key = uid ? type + '_uid_' + uid : type + '_' + name;
@@ -3400,12 +3398,18 @@ function buildCard(person, orgClass, sectionId, idx) {
             style="flex:1;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
             value="${(()=>{try{return profileGet('memo', person.name, person.uid||'')||'';}catch(e){return ''}})()}">
         </div>
-        <div class="birth-year-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
+        <div class="birth-year-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px">
           <label style="color:var(--muted);white-space:nowrap">生年月</label>
-          <input type="month" class="birth-year-input" id="birth-${cardId}"
-            min="1940-01" max="2010-12" style="width:135px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
-            value="${(()=>{try{return normalizeBirthForInput(profileGet('birth', person.name, person.uid||''));}catch(e){return ''}})()}"
+          <input type="number" class="birth-year-input" id="birth-${cardId}" placeholder="例：1975"
+            min="1940" max="2010" style="width:85px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
+            value="${(()=>{try{return splitBirthForInputs(profileGet('birth', person.name, person.uid||'')).year;}catch(e){return ''}})()}"
           >
+          <span style="color:var(--muted)">年</span>
+          <input type="number" class="birth-month-input" id="birth-month-${cardId}" placeholder="任意"
+            min="1" max="12" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
+            value="${(()=>{try{return splitBirthForInputs(profileGet('birth', person.name, person.uid||'')).month;}catch(e){return ''}})()}"
+          >
+          <span style="color:var(--muted)">月</span>
           <span style="color:var(--muted);font-size:11px" id="age-preview-${cardId}">${(()=>{try{const b=profileGet('birth', person.name, person.uid||'');const age=calcAgeFromBirth(b);return age!==null?'→現在'+age+'歳':'';}catch(e){return ''}})()}</span>
         </div>
         <div class="edu-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
@@ -3848,13 +3852,16 @@ function saveHistory(cardId,e) {
     }
   }
 
-  // 生年月を保存（<input type="month">のvalueは"YYYY-MM"形式）
+  // 生年月を保存（年は必須、月は空欄可＝不明のまま保存できる）
   const _birthInput = document.getElementById('birth-' + cardId);
+  const _birthMonthInput = document.getElementById('birth-month-' + cardId);
   if (_birthInput && _birthInput.value) {
-    const _bm = _birthInput.value.match(/^(\d{4})-(\d{2})$/);
-    const _by = _bm ? parseInt(_bm[1]) : NaN;
+    const _by = parseInt(_birthInput.value);
     if (_by >= 1940 && _by <= 2010) {
-      const _birthValue = _bm[1] + '-' + _bm[2];
+      const _bmRaw = _birthMonthInput ? parseInt(_birthMonthInput.value) : NaN;
+      const _hasMonth = _bmRaw >= 1 && _bmRaw <= 12;
+      // 月が未入力（不明）の場合は年だけを保存する（勝手に1月などを補わない）
+      const _birthValue = _hasMonth ? (_by + '-' + String(_bmRaw).padStart(2, '0')) : String(_by);
       window._histCache['birth_' + _histKey] = _birthValue;
       if (window.fbSet && window.fbKey) {
         window.fbSet('birthYears/' + window.fbKey(_histKey), _birthValue);
