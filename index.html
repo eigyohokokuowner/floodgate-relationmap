@@ -1968,6 +1968,36 @@ function profileGet(type, name, uid) {
     return '';
   } catch(e) { return ''; }
 }
+
+// 生年月（"YYYY-MM"）から年齢を計算する。月まで分かっていれば、まだ誕生月を
+// 迎えていない場合に1歳差し引く。旧データ（年のみ "YYYY"）にも対応する。
+function calcAgeFromBirth(b) {
+  if (!b) return null;
+  const s = String(b);
+  const m = s.match(/^(\d{4})(?:-(\d{1,2}))?$/);
+  if (!m) return null;
+  const by = parseInt(m[1]);
+  const bm = m[2] ? parseInt(m[2]) : null;
+  if (!by) return null;
+  const now = new Date();
+  let age = now.getFullYear() - by;
+  if (bm && (now.getMonth() + 1) < bm) age--;
+  return age;
+}
+
+// 保存済みの生年（月）データを<input type="month">のvalueに使える"YYYY-MM"形式にする。
+// 旧データ（年のみ）は月を "01" とみなして表示する（実際の月は不明なため、
+// 必要であれば編集時に正しい月に直してもらう）。
+function normalizeBirthForInput(b) {
+  if (!b) return '';
+  const s = String(b);
+  if (/^\d{4}$/.test(s)) return s + '-01';
+  if (/^\d{4}-\d{1,2}$/.test(s)) {
+    const [y, mo] = s.split('-');
+    return y + '-' + mo.padStart(2, '0');
+  }
+  return '';
+}
 function profileSet(type, name, uid, val) {
   const key = uid ? type + '_uid_' + uid : type + '_' + name;
   if (!window._histCache) window._histCache = {};
@@ -3341,7 +3371,7 @@ function buildCard(person, orgClass, sectionId, idx) {
       <div class="staff-name-wrap">
         <div class="staff-name-row">
           <div class="staff-name" id="dispname-${cardId}">${getFullName(person.name, person.office || '', person.uid || '')}</div>
-          <span class="staff-age" id="age-${cardId}">${(()=>{try{const b=profileGet('birth', person.name, person.uid||'');if(b){return (new Date().getFullYear()-parseInt(b))+'歳';}return '';}catch(e){return ''}})()}</span>
+          <span class="staff-age" id="age-${cardId}">${(()=>{try{const b=profileGet('birth', person.name, person.uid||'');const age=calcAgeFromBirth(b);return age!==null?age+'歳':'';}catch(e){return ''}})()}</span>
           <span class="staff-edu-top" id="edu-top-${cardId}">${(()=>{try{const e=profileGet('edu', person.name, person.uid||'');if(e){const d=JSON.parse(e);const parts=[d.univ,d.faculty].filter(Boolean);return parts.length?parts.join(' ')+'卒':'';}return '';}catch(e){return ''}})()}</span>
         </div>
       </div>
@@ -3371,12 +3401,12 @@ function buildCard(person, orgClass, sectionId, idx) {
             value="${(()=>{try{return profileGet('memo', person.name, person.uid||'')||'';}catch(e){return ''}})()}">
         </div>
         <div class="birth-year-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
-          <label style="color:var(--muted);white-space:nowrap">生年（西暦）</label>
-          <input type="number" class="birth-year-input" id="birth-${cardId}" placeholder="例：1975"
-            min="1940" max="2010" style="width:90px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
-            value="${(()=>{try{return profileGet('birth', person.name, person.uid||'')||'';}catch(e){return ''}})()}"
+          <label style="color:var(--muted);white-space:nowrap">生年月</label>
+          <input type="month" class="birth-year-input" id="birth-${cardId}"
+            min="1940-01" max="2010-12" style="width:135px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px"
+            value="${(()=>{try{return normalizeBirthForInput(profileGet('birth', person.name, person.uid||''));}catch(e){return ''}})()}"
           >
-          <span style="color:var(--muted);font-size:11px" id="age-preview-${cardId}">${(()=>{try{const b=profileGet('birth', person.name, person.uid||'');if(b)return '→現在'+(new Date().getFullYear()-parseInt(b))+'歳';return '';}catch(e){return ''}})()}</span>
+          <span style="color:var(--muted);font-size:11px" id="age-preview-${cardId}">${(()=>{try{const b=profileGet('birth', person.name, person.uid||'');const age=calcAgeFromBirth(b);return age!==null?'→現在'+age+'歳':'';}catch(e){return ''}})()}</span>
         </div>
         <div class="edu-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
           <label style="color:var(--muted);white-space:nowrap">最終学歴</label>
@@ -3818,20 +3848,23 @@ function saveHistory(cardId,e) {
     }
   }
 
-  // 生年を保存
+  // 生年月を保存（<input type="month">のvalueは"YYYY-MM"形式）
   const _birthInput = document.getElementById('birth-' + cardId);
   if (_birthInput && _birthInput.value) {
-    const _by = parseInt(_birthInput.value);
+    const _bm = _birthInput.value.match(/^(\d{4})-(\d{2})$/);
+    const _by = _bm ? parseInt(_bm[1]) : NaN;
     if (_by >= 1940 && _by <= 2010) {
-      window._histCache['birth_' + _histKey] = String(_by);
+      const _birthValue = _bm[1] + '-' + _bm[2];
+      window._histCache['birth_' + _histKey] = _birthValue;
       if (window.fbSet && window.fbKey) {
-        window.fbSet('birthYears/' + window.fbKey(_histKey), _by);
+        window.fbSet('birthYears/' + window.fbKey(_histKey), _birthValue);
       }
       // カードの年齢表示を更新
+      const _ageNow = calcAgeFromBirth(_birthValue);
       const _ageEl = document.getElementById('age-' + cardId);
-      if (_ageEl) _ageEl.textContent = (new Date().getFullYear() - _by) + '歳';
+      if (_ageEl) _ageEl.textContent = _ageNow + '歳';
       const _prevEl = document.getElementById('age-preview-' + cardId);
-      if (_prevEl) _prevEl.textContent = '→現在' + (new Date().getFullYear() - _by) + '歳';
+      if (_prevEl) _prevEl.textContent = '→現在' + _ageNow + '歳';
     }
   }
 
@@ -8487,7 +8520,8 @@ function renderRelInfo(name) {
     const relDept = relInfo.dept;
     // 選択中の本人と同じ方法（保存済みの生年から算出）で、リストの各人物にも年齢を表示する
     const relBirthYear = relP ? profileGet('birth', relP.name, relP.uid || '') : '';
-    const relAgeText = relBirthYear ? (new Date().getFullYear() - parseInt(relBirthYear)) + '歳' : '';
+    const relAgeCalc = calcAgeFromBirth(relBirthYear);
+    const relAgeText = relAgeCalc !== null ? relAgeCalc + '歳' : '';
     const delBtn = hasManual
       ? `<button onclick="event.stopPropagation();deleteManualRel('${name}','${r.name}')"
            style="font-size:10px;background:none;border:none;color:#ef4444;cursor:pointer;padding:2px 4px;flex-shrink:0" title="関係を削除">✕</button>`
@@ -8523,7 +8557,8 @@ function renderRelInfo(name) {
   const currentInfo = getCurrentInfo(p);
   // 職員録のカードと同じ方法（保存済みの生年から算出）で年齢を表示する
   const _riBirthYear = p ? profileGet('birth', p.name, p.uid || '') : '';
-  const _riAgeText = _riBirthYear ? (new Date().getFullYear() - parseInt(_riBirthYear)) + '歳' : '';
+  const _riAgeCalc = calcAgeFromBirth(_riBirthYear);
+  const _riAgeText = _riAgeCalc !== null ? _riAgeCalc + '歳' : '';
 
   body.innerHTML = `<div class="rel-info-body">
     <div class="ri-name">${p?.displayName||p?.name||name}${_riAgeText ? ` <span style="font-size:12px;color:var(--muted);font-weight:400;">${_riAgeText}</span>` : ''}</div>
