@@ -1235,6 +1235,26 @@ function _deterministicUid(seed) {
     <div id="userMgmtError" style="display:none;color:#dc2626;font-size:12px;margin-top:12px;padding:8px 12px;background:#fef2f2;border-radius:6px;"></div>
   </div>
 </div>
+
+<!-- ログイン・利用状況モーダル（管理者のみ） -->
+<div id="loginStatsModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:28px;width:100%;max-width:860px;max-height:85vh;overflow-y:auto;overflow-x:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:16px;box-sizing:border-box;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <h3 style="margin:0;font-size:16px;color:var(--text)">📊 ログイン・利用状況</h3>
+      <button onclick="closeLoginStatsModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:18px;">アカウントごとの利用日を記録しています。同じ日に何度開いても1日1回として数えます。この機能の導入以降が対象です。</div>
+
+    <div id="loginStatsSummary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;"></div>
+
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">日別ログイン人数（直近30日）</div>
+    <div id="loginStatsChart" style="margin-bottom:24px;"></div>
+
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">アカウント別</div>
+    <div id="loginStatsTable" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;"></div>
+  </div>
+</div>
+
 <div id="authGate" style="display:flex;position:fixed;top:0;left:0;right:0;bottom:0;z-index:999999;background:linear-gradient(135deg,#1e3a5f 0%,#0f2647 100%);align-items:center;justify-content:center;">
   <div style="width:100%;max-width:360px;padding:40px 32px;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);box-sizing:border-box;margin:16px;">
     <div style="text-align:center;margin-bottom:28px;">
@@ -1801,6 +1821,7 @@ function _deterministicUid(seed) {
   <div style="padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
     <div style="font-size:14px;font-weight:700;color:var(--text)">🛠️ 管理者ダッシュボード</div>
     <div style="font-size:12px;color:var(--muted)">担当者ごとの情報更新状況（月次）</div>
+    <button onclick="openLoginStatsModal()" style="margin-left:auto;font-size:12px;padding:5px 12px;border:1px solid var(--border);background:#f8fafc;color:var(--text);border-radius:6px;cursor:pointer;white-space:nowrap;">📊 ログイン・利用状況</button>
   </div>
   <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
     <label style="font-size:12px;color:var(--muted);">対象月：</label>
@@ -6171,6 +6192,21 @@ function _activityMonthKey(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
 }
 
+// 'YYYY-MM-DD'形式の日付キーを返す（省略時は今日）
+function _dayKey(date) {
+  date = date || new Date();
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+}
+
+// ログイン・利用状況の記録用：このアカウントが「今日」ログイン/利用したことを記録する。
+// 同じ日に何度呼んでも同じキーに上書きされるだけなので、1日1回の利用としてカウントできる。
+function recordLoginEvent(accountId) {
+  try {
+    if (!accountId || typeof db === 'undefined') return;
+    db.ref('loginLog/' + accountId + '/' + _dayKey()).set(Date.now());
+  } catch(e) {}
+}
+
 // 誰が・誰の情報を・何を更新したかを記録する（管理者ダッシュボード用）。
 // person基準で「重複なく何人を更新したか」を数えられるよう、personKeyには
 // できるだけuidを使う（uidが無い人物はnameで代用）。
@@ -6312,6 +6348,138 @@ async function clearAdminDashboardMonth() {
   }
 }
 
+function openLoginStatsModal() {
+  if (!isAdmin()) return;
+  document.getElementById('loginStatsModal').style.display = 'flex';
+  renderLoginStats();
+}
+
+function closeLoginStatsModal() {
+  document.getElementById('loginStatsModal').style.display = 'none';
+}
+
+// ログイン・利用状況を集計して表示する。
+// 「編集可能者のみ」＝このシステムは登録アカウント（fgAuthUsers）全員が
+// 共通の書き込みパスワードで編集できる作りのため、閲覧専用の別区分は無く、
+// 登録アカウント全員がそのまま対象になる。
+async function renderLoginStats() {
+  if (!isAdmin() || typeof db === 'undefined') return;
+  const summaryEl = document.getElementById('loginStatsSummary');
+  const chartEl = document.getElementById('loginStatsChart');
+  const tableEl = document.getElementById('loginStatsTable');
+  summaryEl.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:12px;">読み込み中…</div>';
+  chartEl.innerHTML = '';
+  tableEl.innerHTML = '';
+  try {
+    const [loginSnap, usersSnap] = await Promise.all([
+      db.ref('loginLog').once('value'),
+      db.ref('fgAuthUsers').once('value')
+    ]);
+    const loginLog = loginSnap.val() || {};
+    const users = usersSnap.val() || {};
+    const accountIds = Object.keys(users);
+
+    const todayKey = _dayKey();
+    const now = new Date();
+    const days30 = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      days30.push(_dayKey(d));
+    }
+    const days7Set = new Set(days30.slice(-7));
+    const days30Set = new Set(days30);
+
+    const dailyCounts = {};
+    days30.forEach(d => dailyCounts[d] = 0);
+
+    let todayCount = 0;
+    const last7Accounts = new Set();
+    const last30Accounts = new Set();
+    const perAccount = {};
+
+    accountIds.forEach(id => {
+      const logDays = loginLog[id] || {};
+      const dayKeys = Object.keys(logDays);
+      let last30 = 0;
+      let lastLoginTs = 0;
+      dayKeys.forEach(dk => {
+        const ts = logDays[dk];
+        if (ts > lastLoginTs) lastLoginTs = ts;
+        if (days30Set.has(dk)) {
+          last30++;
+          dailyCounts[dk]++;
+          last30Accounts.add(id);
+        }
+        if (days7Set.has(dk)) last7Accounts.add(id);
+        if (dk === todayKey) todayCount++;
+      });
+      perAccount[id] = { lastLoginTs, days30: last30, daysTotal: dayKeys.length };
+    });
+
+    // サマリーカード
+    summaryEl.innerHTML = `
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">今日のログイン</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text);">${todayCount}<span style="font-size:12px;font-weight:400;">人</span></div>
+      </div>
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">直近7日</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text);">${last7Accounts.size}<span style="font-size:12px;font-weight:400;">人</span></div>
+      </div>
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">直近30日</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text);">${last30Accounts.size}<span style="font-size:12px;font-weight:400;">人</span></div>
+      </div>
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">全アカウント</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text);">${accountIds.length}<span style="font-size:12px;font-weight:400;">件</span></div>
+      </div>`;
+
+    // 日別棒グラフ（直近30日）
+    const maxCount = Math.max(1, ...days30.map(d => dailyCounts[d]));
+    const barsHtml = days30.map(d => {
+      const count = dailyCounts[d];
+      const heightPct = count > 0 ? Math.max((count / maxCount) * 100, 6) : 0;
+      return `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:120px;" title="${d}：${count}人">
+        ${count > 0 ? `<div style="font-size:10px;color:var(--muted);margin-bottom:2px;">${count}</div>` : ''}
+        <div style="width:70%;background:${count > 0 ? '#7c3aed' : 'transparent'};height:${heightPct}%;border-radius:2px 2px 0 0;"></div>
+      </div>`;
+    }).join('');
+    chartEl.innerHTML = `
+      <div style="display:flex;align-items:flex-end;gap:2px;height:120px;border-bottom:1px solid var(--border);padding:0 4px;">${barsHtml}</div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;padding:0 4px;">
+        <span>${days30[0]}</span><span>${days30[days30.length - 1]}</span>
+      </div>`;
+
+    // アカウント別テーブル（最終ログインが新しい順、記録のないアカウントは後ろ・ID順）
+    const sortedIds = accountIds.slice().sort((a, b) => {
+      const ta = perAccount[a].lastLoginTs, tb = perAccount[b].lastLoginTs;
+      if (ta !== tb) return tb - ta;
+      return a.localeCompare(b);
+    });
+    const header = `
+      <div style="display:grid;grid-template-columns:2fr 1.3fr 1fr 1fr;gap:10px;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--muted);border-bottom:1px solid var(--border);">
+        <div>アカウント</div><div>最終ログイン</div><div>直近30日の利用日数</div><div>累計利用日数</div>
+      </div>`;
+    const rows = sortedIds.map(id => {
+      const rec = users[id] || {};
+      const info = perAccount[id];
+      const label = [rec.name, rec.affiliation].filter(Boolean).join(' ');
+      const lastLoginText = info.lastLoginTs ? new Date(info.lastLoginTs).toLocaleString('ja-JP') : '記録なし';
+      return `<div style="display:grid;grid-template-columns:2fr 1.3fr 1fr 1fr;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;">
+        <div style="font-weight:700;color:var(--accent);">${label ? label + '（' + id + '）' : id}</div>
+        <div style="color:var(--muted);">${lastLoginText}</div>
+        <div>${info.days30}日</div>
+        <div>${info.daysTotal}日</div>
+      </div>`;
+    }).join('');
+    tableEl.innerHTML = header + (rows || '<div style="padding:16px;color:var(--muted);font-size:12px;">登録アカウントがありません</div>');
+  } catch (e) {
+    summaryEl.innerHTML = '<div style="grid-column:1/-1;color:#dc2626;font-size:12px;">読み込みに失敗しました</div>';
+  }
+}
+
 async function gateLogin() {
   const id = (document.getElementById('gateId').value || '').trim();
   const pass = document.getElementById('gatePassword').value;
@@ -6340,6 +6508,7 @@ async function gateLogin() {
       const hash = await sha256Hex(rec.salt + pass);
       if (hash === rec.hash) {
         try { sessionStorage.setItem('fg_auth', id); } catch(e) {}
+        recordLoginEvent(id);
         applyPermissions();
         window._appAuthed = true;
         // 職員数が多いと画面構築（buildContent）に数十秒かかることがあるため、
@@ -6518,6 +6687,7 @@ window.deleteFgUser = async function(id) {
       if (gateBox) gateBox.innerHTML = '<div style="text-align:center;padding:40px 0;"><div style="font-size:30px;margin-bottom:14px;">🔗</div><div style="color:#1e3a5f;font-weight:700;font-size:16px;">人脈ネットワークを構築しています</div><div style="font-size:12px;color:#64748b;font-weight:400;margin-top:8px;">まもなく表示されます</div></div>';
     }
     setTimeout(() => {
+      try { recordLoginEvent(sessionStorage.getItem('fg_auth')); } catch(e) {}
       applyPermissions();
       window._appAuthed = true;
       _startAppWhenReady();
