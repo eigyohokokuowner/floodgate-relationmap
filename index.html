@@ -6887,6 +6887,25 @@ function buildRetiredSection() {
       history: hist
     });
   });
+  // 退職者セクションの「＋メンバーを追加」から直接追加された退職者
+  // （他セクションのカードの経歴に「辞任」を持たないため、上記スキャンでは拾えない。
+  // 　Firebaseのaddedmembers/retired-0を正として、ここでマージする）
+  const _addedRetiredRaw = (window._fbAddedMembers && window._fbAddedMembers['retired-0']) || [];
+  const _existingRetiredUids = new Set(retiredPersons.map(p => p.uid).filter(Boolean));
+  _addedRetiredRaw.forEach(p => {
+    if (p.uid && _existingRetiredUids.has(p.uid)) return;
+    if (p.uid && window._deletedCards && window._deletedCards['uid_' + p.uid]) return;
+    retiredPersons.push({
+      name: p.name,
+      uid: p.uid || '',
+      current_role: p.current_role || '',
+      current_year: p.current_year || '',
+      current_dept: p.current_dept || '',
+      history: p.history || [],
+      office: '退職者'
+    });
+  });
+
   console.log('[RETIRED] 退職者数:', retiredPersons.length, retiredPersons.map(p=>p.name));
 
   // サイドバーのナビ更新
@@ -6928,6 +6947,13 @@ function buildRetiredSection() {
       console.error('[RETIRED] buildCard error:', e, p);
     }
   });
+
+  // ＋メンバーを追加（他セクションと同じ見た目のボタンを追加）
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-member-btn';
+  addBtn.innerHTML = '＋ メンバーを追加';
+  addBtn.onclick = (e) => { e.stopPropagation(); openAddMemberModal('retired-0', '退職者', 'retired'); };
+  grid.appendChild(addBtn);
 
   sec.appendChild(grid);
   // 表示/非表示はswitchOrgで制御するので、初期はdisplay:noneにしない
