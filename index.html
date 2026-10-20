@@ -835,6 +835,8 @@
 <!-- Firebase SDK (compat version) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<!-- SheetJS（管理者ダッシュボードのExcelレポート出力用） -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
   // フォールバック：gstaticが読み込めなかった場合はjsDelivrから取得
   if (typeof firebase === 'undefined') {
@@ -1827,6 +1829,7 @@ function _deterministicUid(seed) {
     <label style="font-size:12px;color:var(--muted);">対象月：</label>
     <select id="adminDashMonthSelect" onchange="window._adminDashShowAll=false; renderAdminDashboard();" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;"></select>
     <button onclick="clearAdminDashboardMonth()" style="font-size:11px;padding:4px 10px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;cursor:pointer;">🗑️ この月の履歴を削除</button>
+    <button id="adminReportExportBtn" onclick="exportAdminMonthlyReport()" style="margin-left:auto;font-size:12px;padding:5px 14px;border:1px solid #16a34a;background:#f0fdf4;color:#15803d;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:700;">📥 月次レポート出力（Excel）</button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:16px;">
     <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">担当者別 更新人数（今月、対象人物の重複なしカウント）</div>
@@ -6351,6 +6354,99 @@ async function clearAdminDashboardMonth() {
     renderAdminDashboard();
   } catch (e) {
     alert('削除に失敗しました');
+  }
+}
+
+// 選択中の月の「担当者別 更新人数」と「担当者別 ログイン日数」をExcel（.xlsx）にまとめて出力する
+// （上長への報告用。サマリーシートに加え、更新履歴の詳細シートも添える）
+async function exportAdminMonthlyReport() {
+  if (!isAdmin() || typeof db === 'undefined') return;
+  if (typeof XLSX === 'undefined') {
+    alert('Excel出力用ライブラリの読み込みに失敗しました。通信環境をご確認のうえ、画面を再読み込みしてください。');
+    return;
+  }
+  const btn = document.getElementById('adminReportExportBtn');
+  const sel = document.getElementById('adminDashMonthSelect');
+  const monthKey = (sel && sel.value) || _activityMonthKey();
+  const origLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 生成中…'; }
+  try {
+    const [actSnap, loginSnap, usersSnap] = await Promise.all([
+      db.ref('activityLog/' + monthKey).once('value'),
+      db.ref('loginLog').once('value'),
+      db.ref('fgAuthUsers').once('value')
+    ]);
+    const actData = actSnap.val() || {};
+    const loginLog = loginSnap.val() || {};
+    const users = usersSnap.val() || {};
+    const entries = Object.values(actData).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+    const editorInfo = {};
+    Object.entries(users).forEach(([id, rec]) => {
+      if (rec && (rec.name || rec.affiliation)) editorInfo[id] = { name: rec.name || '', affiliation: rec.affiliation || '' };
+    });
+    const displayEditor = (id) => {
+      const info = editorInfo[id];
+      if (!info) return id || '?';
+      const label = [info.name, info.affiliation].filter(Boolean).join(' ');
+      return label ? `${label}（${id}）` : (id || '?');
+    };
+
+    // 担当者ごとの当月更新人数（対象人物の重複なしカウント）
+    const byEditor = {};
+    entries.forEach(e => {
+      if (!e.editorId) return;
+      if (!byEditor[e.editorId]) byEditor[e.editorId] = new Set();
+      byEditor[e.editorId].add(e.personKey);
+    });
+
+    // 担当者ごとの当月ログイン（利用）日数
+    const loginCountByEditor = {};
+    Object.keys(users).forEach(id => {
+      const logDays = loginLog[id] || {};
+      loginCountByEditor[id] = Object.keys(logDays).filter(dk => dk.indexOf(monthKey + '-') === 0).length;
+    });
+
+    // 登録ユーザー全員を対象にまとめる（更新・ログインがゼロの担当者も「動きがない」状況が
+    // 分かるよう含める。更新履歴にのみ残り既にアカウントが削除された担当者も念のため含める）
+    const allIds = new Set([...Object.keys(users), ...Object.keys(byEditor)]);
+    const summaryRows = Array.from(allIds).map(id => ({
+      'アカウントID': id,
+      '名前': (editorInfo[id] && editorInfo[id].name) || '',
+      '所属': (editorInfo[id] && editorInfo[id].affiliation) || '',
+      '今月の更新人数（人）': byEditor[id] ? byEditor[id].size : 0,
+      '今月のログイン日数（日）': loginCountByEditor[id] || 0
+    })).sort((a, b) => {
+      const d = b['今月の更新人数（人）'] - a['今月の更新人数（人）'];
+      if (d !== 0) return d;
+      return b['今月のログイン日数（日）'] - a['今月のログイン日数（日）'];
+    });
+
+    const detailRows = entries.map(e => ({
+      '日時': e.ts ? new Date(e.ts).toLocaleString('ja-JP') : '',
+      '担当者': displayEditor(e.editorId),
+      '対象者': e.personName || e.personKey || '',
+      '事務所等': e.office || '',
+      '更新内容': e.type || ''
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+    summarySheet['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'サマリー');
+
+    const detailSheet = XLSX.utils.json_to_sheet(
+      detailRows.length ? detailRows : [{ '日時': '', '担当者': '', '対象者': '', '事務所等': '', '更新内容': '（この月の更新履歴はありません）' }]
+    );
+    detailSheet['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 26 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, detailSheet, '更新履歴詳細');
+
+    XLSX.writeFile(wb, `管理者ダッシュボード_月次レポート_${monthKey}.xlsx`);
+  } catch (e) {
+    console.error(e);
+    alert('レポートの生成に失敗しました');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origLabel; }
   }
 }
 
